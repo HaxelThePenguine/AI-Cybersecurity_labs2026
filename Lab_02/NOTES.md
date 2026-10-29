@@ -81,66 +81,60 @@ Train and test contain no missing required values, invalid sequences, invalid la
 
 We use an 80/20 stratified split of the supplied training data, with `random_state=42`. Stratification preserves the rare goodware proportion; the fixed seed makes the split reproducible. The resulting partitions contain 13,060 training samples and 3,265 validation samples. Model selection uses validation only.
 
-## Task 2A - Unigram Bag-of-Words
+## Task 2 - Bag-of-Words
 
-**[PDF §6.1] Choose a classifier, explain/tune its hyperparameters, and address class imbalance.**
+**[Our note] Setup.** Two variants per representation: Standard and Weighted. Same 80/20 stratified split, seed 42 reset per run, FFNN input -> 64 -> 32 -> 1, Adam lr=0.001, 20 epochs, batch 64, threshold 0.5; CPU. Models are chosen on validation BEFORE test evaluation. The notebook writes no files; LOGBOOK.md contains only the two final test evaluations, as requested.
 
-- Classifier: small FFNN, `256 -> 64 -> 32 -> 1`, with ReLU hidden activations and one malware logit. It can learn nonlinear combinations of API counts; this is a BoW classifier, not the position-based FFNN in Task 3.
-- Preprocessing: training-only CountVectorizer; `log1p` compresses large counts; StandardScaler uses training statistics only. Validation uses the fitted transformations.
-- Starting settings: Adam, learning rate `0.001`, batch size `64`, `20` epochs, decision threshold `0.5`, seed `42`. These are starting choices, not demonstrated optimal values; no hyperparameter comparison is recorded yet.
-- Current loss: unweighted BCEWithLogitsLoss. It operates on logits and is suitable for binary classification, but gives each sample equal weight despite the class imbalance. **The imbalance requirement remains unresolved**: a weighting strategy or a reasoned decision to keep this loss must still be evaluated/documented.
+### Task 2A - Unigram representation
 
-**[PDF §6.1] How many columns are produced, what does each row represent, and can call order be recovered?**
+**[PDF §6.1] How many columns, what does a row represent, and can order be recovered?**
 
-The raw unigram matrix has **256 columns**, one per distinct training API. Each row represents a sequence, and each entry counts an API's occurrences. Shapes: training `(13060, 256)`, validation `(3265, 256)`. Order cannot be recovered. After `log1p` and scaling, inputs are transformed counts rather than literal counts.
+256 columns: one per distinct training API. A row represents one sequence; raw values count API occurrences. Train shape `(13060, 256)`, validation `(3265, 256)`. Positions and transitions are discarded, so order cannot be recovered. Log1p compresses counts; StandardScaler is fitted on training only and reused unchanged.
 
-**[PDF §6.1] Give different sequences with the same unigram vector. What is lost? Can sequences with the same APIs produce different vectors?**
+**[PDF §6.1] Different sequences with equal vectors? Same calls with different vectors?**
 
-`[A, B, C, A]` and `[A, C, B, A]` both give `(A=2, B=1, C=1)`: positions and transitions are lost. `[A, B]` and `[A, B, A]` contain the same distinct APIs but have different counts, so their vectors differ.
+`[A, B, C, A]` and `[A, C, B, A]` both give `(A=2, B=1, C=1)`. `[A, B]` and `[A, B, A]` contain the same distinct APIs but different counts, hence different vectors.
 
-**[PDF §6.1] How does CountVectorizer handle unseen test calls, and how many samples are affected?**
+**[PDF §6.1] How are unseen test calls handled, and how many samples are affected?**
 
-It ignores unseen calls: no new columns and no error. The 3 unseen APIs affect 3 test samples; known calls in those samples are still counted.
+CountVectorizer ignores them without adding columns or raising an error. Task 1 found 3 unseen APIs affecting 3 test samples. Known calls in those samples are still counted.
 
-**[PDF §6.1] Predict performance before training, then report performance and explain the rare-class result.**
+### Classifier, imbalance and validation selection
 
-**Before training:** no run-specific hypothesis was recorded for the existing run. Do not invent one retrospectively; write hypotheses before future runs.
+**[PDF §6.1] Explain the classifier/hyperparameters, address imbalance, predict first and report per-class behavior.**
 
-**Observed:** the saved run before notebook cleanup reports the following validation results after 20 epochs. These are historical results, not a new execution of the refactored cells.
+A small FFNN learns nonlinear combinations of counts. The controlled comparison changes only loss weighting. Weighted BCE balances total class contributions with training-only weights `N/(2*n_class)`: goodware 13.3538, malware 0.5194. Expect better minority recall, potentially at the cost of missed malware; evaluate using macro-F1 rather than accuracy. These expectations were set before the fresh runs.
 
-| Class | Precision | Recall | F1 | Support |
+| Representation | Variant | Val macro-F1 | Goodware recall | Malware recall |
 | --- | --- | --- | --- | --- |
-| Goodware (0) | 0.7733 | 0.4754 | 0.5888 | 122 |
-| Malware (1) | 0.9799 | 0.9946 | 0.9872 | 3,143 |
+| Unigram | Standard | **0.8029** | 0.5246 | 0.9933 |
+| Unigram | Weighted | 0.7691 | 0.6475 | 0.9739 |
+| Unigram + bigram | Standard | **0.8573** | 0.7131 | 0.9901 |
+| Unigram + bigram | Weighted | 0.7905 | 0.7787 | 0.9685 |
 
-**Macro-F1: 0.7880; accuracy: 0.9752.** The model detects most malware but correctly identifies fewer than half of goodware samples. Thus high accuracy hides poor minority-class recall. The imbalance and unweighted loss are plausible contributors; their causal effect requires a controlled comparison.
+Select **Standard for both representations**. Weights improve goodware recall but lower macro-F1 by increasing missed malware. Keeping the unweighted loss is therefore supported by validation, not test performance. Goodware remains the more difficult class.
 
-## Task 2B - Unigrams + bigrams
+### Task 2B - Local order
 
-**[PDF §6.2] Include individual API calls and adjacent pairs using `ngram_range=(1, 2)`.**
+**[PDF §6.2] Add adjacent API pairs; explain expectations and observed improvement.**
 
-Use the same `train_split` and `val_split`, with `tokenizer=identity` and the standard word analyzer. The recorded representation has **5,741 features**: 256 unigrams and 5,485 bigrams. Repeat the same log/scaling steps and FFNN settings; adjust only the input layer size. The larger input also increases model size.
+`ngram_range=(1, 2)` gives 5,741 features: 256 unigrams and 5,485 bigrams. All other settings/splits remain the same. Adjacent pairs may distinguish executions with similar counts, while more features can also overfit. The selected bigram model improves validation macro-F1 from 0.8029 to 0.8573, mainly through better goodware recall. The larger input also increases model capacity; the gain is not proof that order alone explains the difference.
 
-**[PDF §6.2] Do you expect adjacent API pairs to improve classification? Explain before training.**
+### Original and shuffled TEST evaluation
 
-Adjacent pairs could distinguish execution patterns that share similar call counts. They also introduce more sparse features and parameters, which may increase overfitting. No pre-run hypothesis is recorded for the existing attempt; this reasoning is a current interpretation, not a retroactive prediction. Record an explicit hypothesis before the next run.
+**[PDF §4/§6.2] Compare each selected model on original and shuffled test sequences, without retraining.**
 
-**[PDF §6.2] Did results match expectations? Explain improvement or lack of improvement.**
+Shuffle API calls within each TEST sample using seed 42. Preserve sample/label order, sequence length and all occurrence counts; use identical shuffled samples for both models. Reuse the selected models, fitted vectorizers/scalers and threshold. No fitting, training or model selection uses test scores.
 
-Pending: the saved bigram output contains training losses through epoch 9, but no completed validation report. Training-loss reduction alone cannot establish better classification or an advantage over unigrams.
+| Selected model | Test macro-F1 | Shuffled test macro-F1 | Changed vectors | Changed predictions | Train s |
+| --- | --- | --- | --- | --- | --- |
+| Unigram Standard | 0.7985 | 0.7985 | 0 | 0 | 5.31 |
+| Bigram Standard | **0.8440** | 0.5185 | 6,500 / 6,505 | 390 / 6,505 | 8.96 |
 
-**[PDF §6.2 and §4] Check representation changes and compare both models on original and shuffled test sequences, without retraining.**
+**[PDF §4/§6.2] What does shuffling reveal? Can unchanged scores hide changed predictions? Can this separate local and longer-range effects?**
 
-Pending measurement. Expected behavior:
-- Unigram count vectors remain identical because shuffling preserves each API's count. With the same fitted preprocessing and deterministic evaluation, predictions should also remain identical.
-- Bigram vectors can change because adjacency changes. Reuse the fitted vectorizer/scaler and trained model for evaluation; do not refit them on shuffled data.
-- Report both original/shuffled test metrics and whether individual predictions change. An unchanged aggregate score alone does not imply unchanged predictions for the bigram model.
-- A drop would indicate sensitivity to the altered order/transition distribution, not prove that order necessarily improves performance. Global shuffling alters local and longer-range order together, so it cannot separate their contributions.
+Unigram vectors and all predictions remain identical: this representation discards order by construction. Bigram macro-F1 drops by 0.3255 and 390 predictions change, showing sensitivity to altered transitions. Goodware recall falls from 0.6996 to 0.0617. Shuffling also changes the feature distribution and can create unseen pairs; it is not a pure causal estimate of useful order. An unchanged aggregate score alone would not imply unchanged predictions. Global shuffling disrupts local and longer-range order together and cannot separate their contributions. Results use one split and one shuffle seed.
 
-**[PDF §6.2, continued on p.7] Select the best unigram or bigram BoW model on validation and use it as the baseline.**
+**[PDF §6.2, continued on p.7] Which BoW model is the baseline?**
 
-Pending: compare completed validation macro-F1 results. The historical unigram score is 0.7880; no completed bigram score is available. Do not select or tune on test performance.
-
-### [PDF §4] Experiment logbook and run budget
-
-All training attempts, including BoW attempts, belong in the lab logbook. Record settings, what changed, validation results and conclusions; mark missing historical hypotheses/timings as not recorded. Future runs need a hypothesis and a reason to spend a run before training. Keep changes controlled and within the approximate 30-run lab budget. No new training runs were executed to update these notes.
+**Unigram + bigram Standard**, selected by validation macro-F1 **0.8573** before opening test results. Its test macro-F1 is **0.8440**, compared with **0.7985** for unigrams. On original test, goodware recall improves (0.5144 -> 0.6996), while malware recall falls slightly (0.9933 -> 0.9883). It takes 8.96 s versus 5.31 s on CPU, 20 epochs. This is the fixed BoW baseline for later tasks; test results do not trigger further tuning.
