@@ -111,20 +111,13 @@ Our earlier raw-input attempt (run 1) was interrupted after 17 printed epochs an
 
 ### Task 2B - Why the fundamentals matter
 
+**[PDF §6.2] Predict S1-S3, explain the curves, rank the damage and choose which fundamental to fix first.**
 
-**[PDF §6.2 - Predict first] Expected loss curves.**
+We reuse our run 2 setup (150 epochs, patience 20, min_delta=5e-5), resetting seed 42, model and optimizer for each run. S1 uses raw features; S2 uses lr=0.5; S3 uses lr=5e-6. All other settings remain fixed.
 
-- **S1 - no feature scaling.** Without scaling, our features remain highly heterogeneous in magnitude (see the Task 1 range table, e.g. Flow Duration and Flow Bytes/s spanning several orders of magnitude). We therefore expect training to be unstable, with an irregular loss curve.
-- **S2 - far too high learning rate.** We expect the loss to oscillate strongly and diverge: the updates are too large for the optimizer to settle into a minimum, so the model will probably never converge.
-- **S3 - learning rate far too low (about 100x smaller).** We expect the model to still converge, but much more slowly: the loss should decrease steadily in very small steps. Within our 150-epoch budget it may never reach the level of the 2A baseline. This also suggests that our early-stopping criterion (patience and min_delta) would need to be tuned more carefully for such a slow regime.
+Before training, we expect S2 > S1 > S3 in severity: excessive LR may prevent stable learning, raw inputs may make optimization erratic, and a tiny LR may mainly slow learning. We would fix scaling first, then choose LR. If lr=0.5 does not cause breakdown, we will test a higher value rather than claim failure.
 
-**[PDF §6.2] Expected ranking by severity.** We expect **S2 > S1 > S3**. S2 should be the hardest to stabilize, because the loss oscillates excessively and diverges. S1 follows: without feature scaling, heterogeneous feature magnitudes make training unstable. S3 should cause no major defect in what the model can learn, as it can still separate the classes from properly scaled features, but it is clearly slower and risks not reaching convergence within the initial 150-epoch budget.
-
-**[PDF §6.2] Which fundamental would we get right first on a new problem?** Feature scaling: we expect it to have a drastic impact on training.
-
-**[PDF §6.2 - Reading symptoms] What in the curve's shape points to the cause?** Based on our predictions: strong oscillations or a diverging loss would point to a learning rate that is too high; an unstable, irregular curve would point to unscaled inputs; a slow, steady decrease that has not plateaued by the last epoch would point to a learning rate that is too low.
-
-**Pending.** We still need to run S1-S3, plot their training/validation losses, report their validation metrics and confirm or revise the predictions and ranking above using our own results. Our interrupted raw-input attempt is not a controlled S1 comparison: it lacks an advance hypothesis and differs from our new baseline in seeds and stopping behavior as well as scaling.
+**Results pending.** The notebook now contains the shared training function, three configurations, loss plots and a validation comparison table. No S1-S3 training runs have been executed yet; we will log each completed attempt and revise our ranking from its measured results.
 
 ### Task 2C - Lock in the baseline
 
