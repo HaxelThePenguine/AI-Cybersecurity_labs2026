@@ -2,7 +2,7 @@
 
 **Labels:** `[PDF §...]` identifies questions/requests from the assignment (wording may be shortened). `[Our note]` identifies additional discussion. Pending answers are explicitly marked.
 
-**Current progress:** We have implemented Task 1 preprocessing and completed our Task 2A baselines and Task 2B comparisons. We have locked our Task 2C ReLU baseline and evaluated it once on test. Tasks 3-6 remain pending.
+**Current progress:** We have completed Tasks 2A-2C and selected run 7 as our baseline. The logbook records runs 1-7 and the Linear comparison as 7bis. Tasks 3-6 remain pending.
 
 ## Task 1 - Preprocessing
 
@@ -80,17 +80,20 @@ Standardization centres/scales features but does not remove skewness or make it 
 
 ### Task 2A - Minimal classifier
 
-**[PDF §6.1] What did we choose, and why?**
+**[PDF §6.1] Our setup and historical attempts.**
 
-We use 16 -> 64 -> 4, one hidden ReLU layer, unweighted cross-entropy, AdamW lr=5e-4 and explicit weight_decay=0.01, batch 64. This gives us a small nonlinear reference model before tuning. We standardize using training-only statistics, seed initialization and shuffling with 42, and use CPU (one thread). We train up to 100 epochs with patience 20 and min_delta=1e-4; we restore the lowest-validation-loss weights. Small validation improvements still update the best checkpoint; min_delta controls patience only.
+We use 16 -> 64 -> 4, ReLU, unweighted cross-entropy, AdamW lr=5e-4 and weight_decay=0.01, batch 64, seed 42 and CPU (one thread). We standardize using training-only statistics and restore the lowest-validation-loss checkpoint. The two attempts below are historical stages of the same baseline; the notebook currently shows **run 2**.
 
-**[PDF §6.1 - Predict first] Which classes do we expect to be hardest?**
+| Run | Historical attempt | Maximum epochs | Patience | min_delta | Best epoch | Val loss | Accuracy | Macro-F1 | Train + val s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | First attempt | 100 | 20 | 1e-4 | 98 | 0.11698 | 0.9519 | 0.9234 | 26.55 |
+| 2 | Second attempt; current notebook output | 150 | 20 | 5e-5 | 145 | 0.10890 | 0.9578 | 0.9325 | 41.57 |
 
-Before our first scaled baseline, we expected Brute Force to be hardest because it has only 999 training samples (4.86%). DoS Hulk may be easier because its exploratory separability score is highest (1.046). Benign's low score (0.093) suggests possible difficulty despite its larger support. These are hypotheses, not conclusions from classification results.
+**[PDF §6.1 - Predict first] Which classes did we expect to be hardest?**
 
-**[PDF §6.1] How do we select the best epoch? Do the curves converge, and does our prediction hold?**
+Before our first scaled attempt, we expected Brute Force to be hardest because it has only 999 training samples (4.86%). DoS Hulk's higher exploratory separability score suggested easier classification; Benign's low score suggested possible difficulty despite its larger support.
 
-We restore **epoch 98**, the minimum-validation-loss checkpoint (CE **0.11698**). We reached 100 epochs; patience-based early stopping did not trigger. The final printed epoch is not automatically our selected model.
+**Run 1 - first attempt, 100 epochs (historical validation report).**
 
 | Class | Precision | Recall | F1 | Support |
 | --- | --- | --- | --- | --- |
@@ -99,15 +102,24 @@ We restore **epoch 98**, the minimum-validation-loss checkpoint (CE **0.11698**)
 | DoS Hulk | 0.9711 | 0.9259 | 0.9479 | 580 |
 | PortScan | 0.9403 | 0.9299 | 0.9351 | 728 |
 
-**Validation accuracy: 0.9519; macro-F1: 0.9234.** Training plus per-epoch validation: 26.55 s on CPU. The notebook contains the full loss curves and classification report.
+Brute Force had the lowest F1 (0.8450), mainly due to precision (0.7743), despite recall 0.9299. Our prediction held for F1, but not as a prediction of uniquely low recall.
 
-Our losses drop from 0.7473/0.4903 (train/validation, epoch 1) to 0.1176/0.1174 (epoch 100). They remain close and flatten, without sustained validation deterioration. Improvement is still gradual near the end, so we cannot claim complete convergence.
+**Run 2 - second attempt, 150 epochs (report currently saved in the notebook).**
 
-Our hardest-class prediction holds for **F1**: Brute Force is lowest at 0.8450. We detect 199/214 Brute Force flows (recall 0.9299), but 58/257 Brute Force predictions are false positives (precision 0.7743). Its weakness is therefore precision rather than uniquely low recall: DoS Hulk has slightly lower recall (0.9259). DoS Hulk performs well, but Benign has the highest F1 despite its low exploratory separability score. The heuristic did not correctly rank all classes. These results come from one seed/split; test remains unused.
+| Class | Precision | Recall | F1 | Support |
+| --- | --- | --- | --- | --- |
+| Benign | 0.9663 | 0.9740 | 0.9701 | 2886 |
+| Brute Force | 0.8089 | 0.9299 | 0.8652 | 214 |
+| DoS Hulk | 0.9907 | 0.9207 | 0.9544 | 580 |
+| PortScan | 0.9496 | 0.9313 | 0.9404 | 728 |
+
+Brute Force remains the hardest class by F1 (0.8652), with higher precision (0.8089) and unchanged recall (0.9299). Macro-F1 improves from 0.9234 to 0.9325. Epoch budget and min_delta both changed, so this is not an isolated one-factor comparison.
+
+**[PDF §6.1] Best checkpoint and convergence.**
+
+We select by minimum validation loss, rather than automatically keeping the final epoch: epoch 98 for run 1 and epoch 145 for run 2. Early stopping did not trigger in either attempt. In run 1, train/validation losses end at 0.1176/0.1174; in run 2 they end at 0.10901/0.11041. The curves stay close and flatten, without sustained validation deterioration. Continued small improvements do not establish complete convergence. Both attempts use validation only.
 
 **[Our note] Why the Fisher-like heuristic misranked Benign (written after run 2; our recorded hypothesis above is unchanged).** The score separates the classes poorly: Benign, Brute Force and PortScan all fall between 0.09 and 0.17, so it gives no reliable ranking among them; only DoS Hulk stands out (1.05). It also ignores class frequencies, and Benign's one-vs-rest "rest" group combines three heterogeneous attack classes, which inflates the denominator. Class frequency matched the outcome better: Brute Force has 999 training samples, about 13.5 times fewer than Benign (13,467; roughly one order of magnitude) and 2.7-3.4 times fewer than DoS Hulk (2,708) and PortScan (3,394), and it has the lowest F1, although through precision rather than recall.
-
-Our exploratory raw-input attempt was interrupted; the numbered comparisons below refer to our completed scaled baselines and controlled Task 2B runs.
 
 ### Task 2B - Why the fundamentals matter
 
@@ -121,7 +133,7 @@ Before training, we expected S2 > S1 > S3 in severity: S2 would oscillate or div
 
 | Run | Setup | Val loss | Accuracy | Macro-F1 | Epochs | Best epoch | Train + val s |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2 | Scaled reference, lr=5e-4 | 0.10890 | 0.9578 | 0.9325 | 150 | 145 | 39.91 |
+| 2 | Scaled reference, lr=5e-4 | 0.10890 | 0.9578 | 0.9325 | 150 | 145 | 41.57 |
 | 3 | S1: raw inputs, lr=5e-4 | 1218.416544 | 0.9326 | 0.8931 | 35 | 15 | 9.24 |
 | 4 | S2: scaled, lr=0.5 | 0.333414 | 0.9363 | 0.8953 | 33 | 13 | 8.80 |
 | 5 | S3: scaled, lr=5e-6 | 0.370412 | 0.9004 | 0.7391 | 150 | 150 | 39.71 |
@@ -144,40 +156,46 @@ Very large, erratic losses would make us inspect feature scales and extreme valu
 
 ### Task 2C - Lock in our baseline
 
-**[PDF §6.3] How do we choose and evaluate our baseline?**
+**[PDF §6.3] Which model is our baseline?**
 
-Our setup is in `HP_2C`: width 64, batch 64, AdamW lr=1e-3 (written `10e-4` in the code), weight_decay=0.01, maximum 200 epochs, patience 20, min_delta=5e-5 and seed 42. Relative to run 2, we changed **two** settings at once: the epoch budget (150 -> 200) and the learning rate (5e-4 -> 1e-3). Our recorded hypothesis below covers only the longer budget; we did not record a separate hypothesis for the learning-rate change, and we cannot attribute the improvement over run 2 to either change alone. We use the same training-fitted StandardScaler and the shared training loop, which restores the lowest-validation-loss checkpoint.
+We lock **run 7**: StandardScaler fitted on training only; 16 -> 64 -> 4 with ReLU; unweighted cross-entropy; AdamW lr=1e-3, weight_decay=0.005; batch 64; maximum 200 epochs; patience 20; min_delta=5e-5; seed 42; CPU. We restore the minimum-validation-loss checkpoint at **epoch 196**. Training plus per-epoch validation took **50.33 s for ReLU alone**.
 
-**Before training:** we expected a modest benefit from additional epochs and better validation performance from ReLU than from removing the hidden activation. We planned to check the per-class metrics rather than assume a benefit for every class.
+Compared with run 6, we changed only weight decay (0.01 -> 0.005). Validation macro-F1 increases from 0.95076 to **0.95135** (+0.00059), accuracy from 0.96688 to **0.96756**, and loss decreases from 0.09209 to **0.08986**. We retain this as our best measured baseline, while recognizing that the improvement is small and comes from one seed. The earlier run 2 -> run 6 comparison changed both LR and epoch budget, so it does not isolate the LR effect.
 
-We train ReLU and Linear (Identity) candidates from identically seeded linear-layer weights, keeping all other settings fixed. Without a hidden nonlinearity, the two linear layers form an overall linear classifier. We select the activation by validation macro-F1 and lock **ReLU** (validation macro-F1 0.9508, above both the Linear candidate and run 2's 0.9325).
+**[PDF §6.3] Compare validation and test. Does it generalize?**
 
-| Validation | Run 2 (ReLU, lr 5e-4, 150 ep.) | ReLU (lr 1e-3, 200 ep.) | Linear (lr 1e-3) |
+The full classification reports and confusion-matrix heatmaps are in the notebook.
+
+| Partition | Cross-entropy | Accuracy | Macro-F1 |
 | --- | --- | --- | --- |
-| Cross-entropy | 0.1089 | 0.0921 | 0.2871 |
-| Accuracy | 0.9578 | 0.9669 | 0.9129 |
-| Macro-F1 | 0.9325 | 0.9508 | 0.8667 |
-| Brute Force F1 | 0.8652 | 0.9238 | 0.7513 |
-| Best epoch / epochs run | 145 / 150 | 200 / 200 | 55 / 75 |
+| Validation | 0.08986 | 0.96756 | 0.95135 |
+| Test | 0.08612 | 0.96779 | 0.95516 |
 
-**[PDF §6.3] Compare validation and test. Does our baseline generalize?**
+| Class | Validation F1 | Test F1 |
+| --- | --- | --- |
+| Benign | 0.9780 | 0.9772 |
+| Brute Force | 0.9238 | 0.9385 |
+| DoS Hulk | 0.9555 | 0.9608 |
+| PortScan | 0.9481 | 0.9441 |
 
-| Locked ReLU baseline | Cross-entropy | Accuracy | Macro-F1 | Benign F1 | Brute Force F1 | DoS Hulk F1 | PortScan F1 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Validation | 0.0921 | 0.9669 | 0.9508 | 0.9773 | 0.9238 | 0.9542 | 0.9477 |
-| Test | 0.0899 | 0.9667 | 0.9537 | 0.9764 | 0.9385 | 0.9548 | 0.9450 |
-
-Yes. The gap between validation and test is very small: **-0.02 percentage points in accuracy** (0.9669 -> 0.9667) and **+0.29 percentage points in macro-F1** (0.9508 -> 0.9537); per-class F1 differs by at most 0.015. This is expected, because validation and test are both stratified partitions drawn at random from the same cleaned pool of flows and therefore follow the same distribution. Since the model was never selected or tuned on test, the closeness of the two scores indicates that it has learned the features and decision boundaries without overfitting to the validation data. The largest per-class difference is on Brute Force, where test F1 is slightly higher; with only 214 Brute Force samples per partition, a single flow shifts recall by about 0.47 percentage points, so a difference of this size is consistent with sampling noise rather than a systematic effect. Because both partitions come from the same pool, this result measures in-distribution generalization on this dataset only.
+Test - validation is **+0.02 percentage points in accuracy** and **+0.38 points in macro-F1**. Per-class F1 is also close; the largest difference is Brute Force (+0.0147). These results support good generalization on this stratified split. We freeze this baseline now.
 
 **[PDF §6.3] Does switching the activation change per-class behavior?**
 
-Yes, substantially. With ReLU, training and validation losses decrease stably and stay close to each other as the epochs increase, approaching a plateau; the best checkpoint is still the last epoch (200), so improvement had not completely stopped. The Linear model stops early (epoch 75, best epoch 55) at a much higher validation loss (0.2871 versus 0.0921).
+Our advance prediction was that ReLU would outperform Linear, particularly on the harder classes. We compare them with identical initialization and settings, including weight_decay=0.005. Linear means Identity between the two linear layers, giving an overall linear classifier.
 
-The degradation is not uniform across classes. The Linear model has the most difficulty identifying **Brute Force**: its recall drops from 0.9346 to 0.6916 (148/214 detected), with 55 Brute Force flows classified as Benign, against 3 for ReLU, and its F1 falls from 0.9238 to 0.7513. PortScan keeps the same recall (0.93) but its precision falls from 0.9618 to 0.7820, because 157 Benign flows are predicted as PortScan (15 with ReLU). DoS Hulk loses recall (0.9345 -> 0.8672) while its precision rises slightly (0.9748 -> 0.9941). This indicates that Brute Force is separated from Benign traffic by non-linear relationships between features, which a linear classifier cannot represent, whereas the hidden ReLU layer can.
+| Class | ReLU precision | ReLU recall | ReLU F1 | Linear precision | Linear recall | Linear F1 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Benign | 0.9716 | 0.9844 | 0.9780 | 0.9472 | 0.9321 | 0.9396 |
+| Brute Force | 0.9132 | 0.9346 | 0.9238 | 0.8071 | 0.7430 | 0.7737 |
+| DoS Hulk | 0.9665 | 0.9448 | 0.9555 | 0.9941 | 0.8672 | 0.9263 |
+| PortScan | 0.9685 | 0.9286 | 0.9481 | 0.7827 | 0.9299 | 0.8500 |
 
-**[PDF §6.3] Would it be fair to compare the two activations on test?**
+ReLU has validation macro-F1 **0.95135**, versus **0.87240** for Linear. The biggest F1 loss without ReLU is on Brute Force (0.9238 -> 0.7737): recall falls from 0.9346 to 0.7430. PortScan precision also drops sharply (0.9685 -> 0.7827), while DoS Hulk loses recall (0.9448 -> 0.8672) despite higher precision. The nonlinear model provides a better balance here; the benefit is not identical across classes. ReLU completes 200 epochs, restoring epoch 196; Linear stops at 75, restoring epoch 55. Linear (run 7bis) took **18.05 s**, separate from ReLU's 50.33 s.
 
-No. Comparing them on validation is sufficient to make the choice, and the test set must stay off-limits for choosing between models. If we selected the activation using test scores, test would become part of model selection, and the score we then report would no longer be an independent, unbiased estimate of generalization. We therefore choose on validation and evaluate only the locked model on test.
+**[PDF §6.3] Would comparing the activations on test be fair for selection?**
+
+No. We choose the activation and hyperparameters using validation macro-F1, with checkpoint selection by validation loss. Choosing from test scores would make test part of tuning and bias the reported generalization estimate. We evaluate only the selected ReLU model on test.
 
 ## Task 3 - When a feature biases the model
 
@@ -231,7 +249,7 @@ No. Comparing them on validation is sufficient to make the choice, and the test 
 
 **[PDF §4] One row per training run, task tag, one change, hypothesis BEFORE running, validation result and conclusion; about 25 runs in total.**
 
-Our logbook contains five numbered runs: two Task 2A baselines and S1-S3 for Task 2B. We recorded our S1-S3 hypotheses before training. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
+Our logbook contains eight training entries, labelled 1-7 and 7bis: two Task 2A baselines, S1-S3, the selected ReLU configurations and the controlled Linear comparison. We recorded our S1-S3 hypotheses before training. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
 
 **[PDF §2/§11] Required deliverables and reasoning.**
 
