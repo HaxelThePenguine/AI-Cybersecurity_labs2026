@@ -2,7 +2,7 @@
 
 **Labels:** `[PDF §...]` identifies questions/requests from the assignment (wording may be shortened). `[Our note]` identifies additional discussion. Pending answers are explicitly marked.
 
-**Current progress:** We have implemented Task 1 preprocessing and completed our Task 2A scaled classifier. We report validation results below; Tasks 2B-6 remain pending. LOGBOOK.md contains our initial interrupted attempt and the completed baseline run. We have not evaluated test.
+**Current progress:** We have implemented Task 1 preprocessing and completed our Task 2A scaled classifier. We report validation results below. We have recorded our Task 2B predictions but have not run S1-S3 yet; Tasks 2B-6 remain pending. LOGBOOK.md contains our initial interrupted attempt and the completed baseline run. We have not evaluated test.
 
 ## Task 1 - Preprocessing
 
@@ -113,7 +113,21 @@ Our earlier raw-input attempt (run 1) was interrupted after 17 printed epochs an
 
 **[PDF §6.2] Predict, run and plot S1 (raw features), S2 (too-high LR), S3 (too-low LR); name/explain each failure, rank severity and diagnose curves.**
 
-**Pending.** Our scaled Task 2A baseline is ready. We will vary one fundamental at a time while keeping the rest of its setup fixed. Our interrupted raw-input attempt is not a controlled S1 comparison: it lacks an advance hypothesis and differs from our new baseline in seeds and stopping behavior as well as scaling. No S2/S3 runs or observed ranking exist.
+We start from our scaled Task 2A baseline and vary one fundamental at a time, keeping the rest of the setup fixed. The predictions below were recorded **before** running S1-S3; we will compare them with our observed curves once the runs are complete.
+
+**[PDF §6.2 - Predict first] Expected loss curves.**
+
+- **S1 - no feature scaling.** Without scaling, our features remain highly heterogeneous in magnitude (see the Task 1 range table, e.g. Flow Duration and Flow Bytes/s spanning several orders of magnitude). We therefore expect training to be unstable, with an irregular loss curve.
+- **S2 - far too high learning rate.** We expect the loss to oscillate strongly and diverge: the updates are too large for the optimizer to settle into a minimum, so the model will probably never converge.
+- **S3 - learning rate far too low (about 100x smaller).** We expect the model to still converge, but much more slowly: the loss should decrease steadily in very small steps. Within our 150-epoch budget it may never reach the level of the 2A baseline. This also suggests that our early-stopping criterion (patience and min_delta) would need to be tuned more carefully for such a slow regime.
+
+**[PDF §6.2] Expected ranking by severity.** We expect **S2 > S1 > S3**. S2 should be the hardest to stabilize, because the loss oscillates excessively and diverges. S1 follows: without feature scaling, heterogeneous feature magnitudes make training unstable. S3 should cause no major defect in what the model can learn, as it can still separate the classes from properly scaled features, but it is clearly slower and risks not reaching convergence within the initial 150-epoch budget.
+
+**[PDF §6.2] Which fundamental would we get right first on a new problem?** Feature scaling: we expect it to have a drastic impact on training.
+
+**[PDF §6.2 - Reading symptoms] What in the curve's shape points to the cause?** Based on our predictions: strong oscillations or a diverging loss would point to a learning rate that is too high; an unstable, irregular curve would point to unscaled inputs; a slow, steady decrease that has not plateaued by the last epoch would point to a learning rate that is too low.
+
+**Pending.** We still need to run S1-S3, plot their training/validation losses, report their validation metrics and confirm or revise the predictions and ranking above using our own results. Our interrupted raw-input attempt is not a controlled S1 comparison: it lacks an advance hypothesis and differs from our new baseline in seeds and stopping behavior as well as scaling.
 
 ### Task 2C - Lock in the baseline
 
