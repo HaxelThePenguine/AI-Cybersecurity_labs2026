@@ -66,11 +66,11 @@ At L=90, no supplied training sequence is truncated; 40.57% of test sequences ar
 
 The training partition contains **256 distinct API calls**. The test set contains **3 distinct unseen calls**: `ControlService`, `NtDeleteKey`, and `WSASocketA`. **3 of 6,505 test samples (~0.046%)** contain at least one unseen call.
 
-The model vocabulary remains restricted to the training partition. BoW ignores unseen calls; Task 3 maps them to UNK=1, reserving PAD=0. Graph handling remains to be defined.
+The vocabulary remains restricted to train_split. BoW ignores unseen calls; Tasks 3/4 map them to UNK=1, reserving PAD=0. UNK is a real call; PAD is an artificial filler. Graph handling remains to be defined.
 
 ### [Our note] Decisions still open
 
-- Task 2 compared class weighting; Standard was selected on validation. Task 3 currently uses unweighted BCE; its imbalance strategy and hyperparameters remain open to tuning.
+- Task 2 selected Standard after comparing class weights. Tasks 3/4 start with the same unweighted BCE policy; further imbalance/regularization choices remain subject to validation.
 - Task 3 currently uses L=90; any changes must be justified using training/validation data.
 
 ### [Our note] Data quality checks
@@ -83,7 +83,7 @@ We use an 80/20 stratified split of the supplied training data, with `random_sta
 
 ## Task 2 - Bag-of-Words
 
-**[Our note] Setup.** Two variants per representation: Standard and Weighted. Same 80/20 stratified split, seed 42 reset per run, FFNN input -> 64 -> 32 -> 1, Adam lr=0.001, 20 epochs, batch 64, threshold 0.5; CPU. Models are chosen on validation BEFORE test evaluation. The notebook writes no files; LOGBOOK.md contains only the two final test evaluations, as requested.
+**[Our note] Recorded baseline.** Standard/Weighted per representation; same 80/20 split, seed 42 per run, FFNN input -> 64 -> 32 -> 1, Adam lr=0.001, 20 epochs, batch 64, threshold 0.5. The reference results/times below come from completed CPU runs; they are not new GPU measurements. Select on validation before evaluating test. The current notebook can also use CUDA/XPU.
 
 ### Task 2A - Unigram representation
 
@@ -103,7 +103,7 @@ CountVectorizer ignores them without adding columns or raising an error. Task 1 
 
 **[PDF §6.1] Explain the classifier/hyperparameters, address imbalance, predict first and report per-class behavior.**
 
-A small FFNN learns nonlinear combinations of counts. The controlled comparison changes only loss weighting. Weighted BCE balances total class contributions with training-only weights `N/(2*n_class)`: goodware 13.3538, malware 0.5194. Expect better minority recall, potentially at the cost of missed malware; evaluate using macro-F1 rather than accuracy. These expectations were set before the fresh runs.
+A small FFNN learns nonlinear combinations of counts; two compact hidden layers keep the classifier simple. Adam lr=0.001 and batch 64 are starting settings, with a fixed 20-epoch budget; they are not claimed to be globally optimal. The controlled comparison changes only loss weighting. Weighted BCE balances total class contributions with training-only weights `N/(2*n_class)`: goodware 13.3538, malware 0.5194. Expect better minority recall, potentially at the cost of missed malware; evaluate using macro-F1 rather than accuracy. These expectations were set before the fresh runs.
 
 | Representation | Variant | Val macro-F1 | Goodware recall | Malware recall |
 | --- | --- | --- | --- | --- |
@@ -141,53 +141,113 @@ Unigram vectors and all predictions remain identical: this representation discar
 
 ## Task 3 - Fixed-length FFNNs
 
-**[Our note] Provisional results.** These are initial runs, before tuning, on the same training/validation split as Task 2. Scores, times and the selected FFNN candidate are not final. The legacy code/output at the end of Task 3B is excluded.
+**[Our note] Status.** Theory and initial validation results are available. Hyperparameters and conclusions remain provisional. Values below are the latest saved outputs, retained through the readability cleanup; final results/timings must be confirmed after tuning and the XPU runtime fixes. No complete CPU/GPU benchmark or FFNN test ablation is saved.
 
-### Fixed length and encoding
+### Length and representations
 
-**[PDF §7] Why does an FFNN need fixed-length inputs? How do padding, truncation and longer test sequences work?**
+**[PDF §7] Why does an FFNN need fixed length? How do we handle padding, truncation and longer test inputs?**
 
-A dense layer has a fixed number of input weights. We use **L=90**, the longest sequence in train_split: keep the first 90 calls and right-pad shorter inputs with PAD=0. This retains all training/validation calls. Test sequences reach 100 calls: **2,639/6,505 (40.57%)** lose their final 1-10 calls. Keeping the prefix is a simple consistent policy, but may discard useful late behaviour. L was chosen from training, not the test maximum.
+A dense layer has a fixed number of input weights. We choose **L=90**, the maximum in train_split: retain the first 90 calls and right-pad shorter inputs. No training/validation calls are lost. Test reaches 100 calls, so **2,639/6,505 samples (40.57%)** lose their final 1-10 calls. This simple prefix policy can discard late behaviour; L is justified from training, not the test maximum.
 
-**[PDF §7] How do the two encodings use the same FFNN architecture?**
+**[PDF §7] How do the two FFNN encodings share the same architecture?**
 
-- **3A:** 90 integer IDs, standardized per position using training-only statistics, then 90 -> 64 -> 32 -> 1. Scaling also transforms PAD values; they need not remain zero.
-- **3B:** original integer IDs -> trainable embedding -> flatten -> 64 -> 32 -> 1. The current embedding dimension is **32**, so the FFNN receives **90 x 32 = 2,880** values. PAD's embedding stays zero with padding_idx=0.
+Current code uses ReLU hidden layers **256 -> 128**, Adam lr=0.001, batch 64, 20 epochs, unweighted BCE and threshold 0.5; seed 42. These are current settings, not a completed tuning result.
 
-Both use the same hidden layers with ReLU, Adam lr=0.001, batch 64, 20 epochs, unweighted BCEWithLogitsLoss and threshold 0.5; seed 42, CPU. The vocabulary contains 256 training APIs plus PAD=0 and UNK=1. Embeddings and classifier weights are learned together. These settings are starting points, not tuned optima; the larger embedding input also increases parameter count.
+- **3A:** 90 IDs -> training-only, column-wise StandardScaler -> 256 -> 128 -> 1. Scaling also transforms PAD zeros; original integer matrices are retained separately.
+- **3B:** 90 IDs -> trainable embedding of **16 values per API** -> flatten **90 x 16 = 1,440** values -> 256 -> 128 -> 1. PAD's embedding stays zero. Embedding and FFNN weights learn together.
 
-**[PDF §7 - Before training] Is numerical ID order meaningful? Which encoding should work better, and why?**
+The same SequenceFFNN class defines both hidden architectures; only encoding and input width differ. Vocabulary: 256 training APIs plus PAD=0 and UNK=1.
 
-IDs identify APIs; their order and distances have no behavioural meaning. Standardization does not fix this. Embeddings can learn task-relevant relationships instead of imposing numerical distances, so they are the more promising representation. Improvement is not guaranteed: they add parameters and may overfit. Neither encoding gives the FFNN an explicit mechanism for recurrent sequence processing.
+**[PDF §7 - Before training] Is ID order meaningful? Which encoding is more promising?**
 
-### Initial results and learning curves
+API IDs are arbitrary categories: numerical order/distance has no behavioural meaning, and scaling does not fix it. Embeddings can learn useful task-specific relationships, so they are more promising. Extra parameters can also overfit; better results are not guaranteed.
 
-**[PDF §7] Do the models perform similarly? Which takes longer or trains less stably? Explain using training/validation curves.**
+### Saved validation evidence
 
-All metrics below refer to **validation after epoch 20**, not test or a selected earlier checkpoint.
+**[PDF §7] Are performance and training behaviour similar? Use the learning curves and timings.**
 
-| Initial model | Macro-F1 | Goodware recall | Malware recall | CPU training s |
-| --- | --- | --- | --- | --- |
-| 3A - scaled IDs | 0.5589 | 0.0902 | 0.9920 | 5.72 |
-| 3B - embeddings (32) | 0.6439 | 0.2295 | 0.9898 | 11.67 |
+Saved metrics evaluate the **last epoch (20)**, not the epoch with best validation score:
 
-Embeddings currently improve macro-F1 by **0.0850**, detecting 28/122 goodware samples versus 11/122 for IDs. Both still favour malware heavily. Their accuracies (95.83% and 96.14%) are below the approximately 96.26% majority-class baseline; accuracy alone is misleading.
+| Model | Macro-F1 | Goodware precision | Goodware recall | Malware precision | Malware recall |
+| --- | --- | --- | --- | --- | --- |
+| 3A - scaled IDs | 0.5744 | 0.2043 | 0.1557 | 0.9675 | 0.9765 |
+| 3B - embeddings | 0.6557 | 0.5833 | 0.2295 | 0.9708 | 0.9936 |
 
-Both curves show **overfitting**. In 3A, validation loss bottoms out around epoch 7 and then rises while training loss falls. In 3B, training loss approaches zero while validation loss rises after the first few epochs and fluctuates more. This indicates poor generalization, rather than proof of optimizer instability. The embedding run takes about twice as long, consistent with its larger model and embedding updates. Timings exclude validation and are single-run measurements. Fewer epochs/early stopping and regularization are candidates for validation-based tuning; minimum validation loss need not coincide with maximum macro-F1.
+3B detects **28/122 goodware** versus **19/122** for 3A, but still misses most benign samples. Accuracy is 94.58%/96.51%; the majority-class baseline is about 96.26%, so accuracy hides this weakness. Saved training times are 6.90 s/11.89 s; these individual runs do not establish CPU/GPU speedup.
 
-**[PDF §7] Compare the best FFNN with the BoW baseline. Does keeping fixed call positions improve classification?**
+Both curves show **overfitting**: training loss falls while validation loss rises after the first few epochs; 3B's training loss approaches zero. This is poor generalization, not evidence of insufficient capacity. Larger hidden/embedding dimensions add capacity without fixing imbalance or sensitivity to absolute positions. Batch size alone does not directly solve this gap. Validation-based checkpoint selection/early stopping and then a controlled regularization trial are proposed; **neither early stopping nor new regularization is currently implemented**. Minimum validation loss need not maximize macro-F1.
 
-The **current FFNN candidate is 3B**, with validation macro-F1 **0.6439**, versus **0.8573** for the selected unigram + bigram BoW baseline. Fixed positions have not improved classification in these initial runs. Possible reasons include arbitrary ID geometry in 3A, sensitivity to position shifts, overfitting and class imbalance. BoW aggregates evidence regardless of absolute position and bigrams retain useful local transitions. Truncation is an additional test-time limitation, not an explanation for this validation gap: no validation calls are truncated. The comparison must be revisited after tuning; it does not show that order is generally useless.
+**[PDF §7] Does the best FFNN improve on the BoW baseline? Why might it fail?**
 
-### Remaining PDF comparisons
+The **provisional FFNN candidate is 3B: macro-F1 0.6557**, below bigram BoW **0.8573** on the same validation split. Fixed positions have not helped in these runs. Possible explanations include arbitrary ID geometry in 3A, overfitting, minority scarcity and sensitivity to position shifts. BoW aggregates calls independently of absolute position, while bigrams preserve local transitions. Truncation affects longer test inputs, not this validation comparison. This does not prove that order is useless; revisit after tuning.
 
-**[PDF §7] Compare average training time per epoch on CPU and GPU for the same chosen model/configuration and batch size. How much faster or slower is GPU?**
+### Remaining comparisons
 
-**Pending measurement.** The saved CPU runs average approximately **0.286 s/epoch (3A)** and **0.584 s/epoch (3B)**. There is no corresponding GPU run, so no speedup can be reported. After selecting the final FFNN, compare fresh CPU/GPU runs with identical configuration, batch size and timing scope; synchronize CUDA when timing. Speedup = CPU seconds/epoch divided by GPU seconds/epoch. If CUDA is unavailable, report the comparison as unavailable. GPU need not be faster for a small model because transfer and launch overhead can dominate.
+**[PDF §7] Compare average CPU/GPU epoch time with identical model configuration and batch size.**
 
-**[PDF §7; §4] Compare the best FFNN on original and shuffled test inputs. What does this reveal about call positions?**
+**Pending matched benchmark.** The Task 4 benchmark can include the selected FFNN when Task 3 has also run. It copies identical initial weights, repeats seeded batches and synchronizes CUDA/XPU timers. Report CPU seconds/epoch divided by GPU seconds/epoch; no completed paired results are saved. A GPU need not be faster for small workloads. CUDA being unavailable does not exclude the Intel XPU GPU.
 
-**Pending test evaluation after validation-based model selection.** For each sample, first retain sequence[:90], then shuffle only those retained calls, then right-pad both versions identically. Reuse the trained model, vocabulary, scaler where applicable and threshold; do not retrain or fit on test. This preserves retained calls, counts and padding positions, changing only call positions.
+**[PDF §7; §4] Evaluate the best FFNN on original and shuffled test. What does shuffling reveal?**
 
-Shuffling generally changes the FFNN's input because positions are distinct features. A score decrease would indicate sensitivity to their arrangement; unchanged aggregate scores alone would not prove order is ignored, since individual predictions may change. Report original/shuffled macro-F1, per-class behaviour and changed predictions. Shuffling disrupts both local and longer-range structure and introduces shifted inputs, so it cannot isolate their contributions. The observed effect remains unanswered until the experiment is run.
+**Pending FFNN implementation/evaluation after final validation selection.** First retain sequence[:90], shuffle only retained real calls, then right-pad both versions identically. Reuse model, vocabulary, scaler if applicable and threshold; never fit/retrain on test. Positions change, but retained calls, counts and PAD locations do not. A drop would show sensitivity to arrangement; unchanged aggregate scores can still hide changed predictions. Global shuffling cannot isolate local versus long-range contributions and also shifts the input distribution. No observed FFNN shuffle conclusion is available yet.
+
+## Task 4 - Recurrent models
+
+**[Our note] Status.** The notebook implements vanilla RNN, BiRNN and unidirectional LSTM independently of Tasks 2/3. Current settings: embedding 16, hidden 64, one recurrent layer, Adam lr=0.002, batch 512, 40 epochs, unweighted BCE, threshold 0.5. RNN_CLIP_NORM=None disables clipping. Treat settings/results as provisional; BiRNN/LSTM selection and final comparisons are not complete in the saved outputs reviewed here.
+
+### Sequence handling and parameters
+
+**[PDF §8] Is padding/truncation needed? Can test sequences be longer than training sequences?**
+
+RNNs reuse the same transition weights at each timestep, so they accept variable lengths without changing the input layer. We encode **full original lists**; no training/validation/test truncation is needed. Mini-batches are right-padded to their longest sample, then pack_padded_sequence uses real lengths to exclude PAD. UNK remains a real timestep. Longer test sequences increase work/memory and may still be harder to classify, even though the architecture accepts them.
+
+**[PDF §8] Compare RNN/FFNN trainable parameter counts. What changes when sequence length increases?**
+
+Calculated for current vocabulary/architecture, with biases and trainable embeddings included:
+
+| Model | Parameters at L=90 |
+| --- | --- |
+| FFNN IDs (256 -> 128) | 56,321 |
+| FFNN embeddings (16; 256 -> 128) | 406,049 |
+| Vanilla RNN (16; hidden 64) | 9,441 |
+| BiRNN (16; hidden 64 per direction) | 14,753 |
+| LSTM (16; hidden 64) | 25,185 |
+
+With vocabulary, hidden size and layers fixed, increasing length leaves recurrent parameter counts unchanged because weights are shared across timesteps. FFNN flattening enlarges the first Linear layer: at L=100, the two FFNNs have 58,881/447,009 parameters. More timesteps still increase RNN computation and activation memory.
+
+### Architectural choices and saved observations
+
+**[PDF §8] Explain vanilla RNN behaviour and any training difficulties.**
+
+The completed saved vanilla run ends at validation **macro-F1 0.7131**, goodware precision/recall **0.5972/0.3525**, malware precision/recall **0.9753/0.9908**. It identifies 43/122 goodware; imbalance remains a major limitation. Training loss falls from 0.3222 to 0.0594; validation improves from 0.2065 to 0.1265 but later fluctuates/levels off as the training gap grows. This suggests some overfitting; curves alone do not prove exploding/vanishing gradients. Clipping may address large gradients, not overfitting or XPU runtime faults. The code retains epoch-40 weights, not an earlier peak checkpoint.
+
+**[PDF §8] Is bidirectional access to later calls appropriate?**
+
+Yes for **offline classification** after the full trace is collected. It is not causal for an online decision at time t that must use only calls observed up to t. BiRNN concatenates forward/backward final states of the last layer; packing keeps these states tied to real calls. Its greater cost/parameter count must be justified by completed validation results, which are still pending here.
+
+**[PDF §8] Why choose a unidirectional LSTM? Compare results and curves with the other variants.**
+
+One direction isolates the cell change relative to vanilla RNN instead of also adding bidirectionality. Input/forget/output gates and cell state regulate retained information and may help with distant dependencies. More parameters do not guarantee better validation. **Full BiRNN/LSTM results and learning-curve comparison remain pending**; partial BiRNN logs are not a completed score or evidence that a variant loses.
+
+### Costs, baseline and order
+
+**[PDF §8] Compare recurrent and FFNN training time per epoch. Which is faster and why?**
+
+Saved vanilla RNN time is **3.546 s/epoch**; saved FFNN totals correspond to about 0.345/0.595 s/epoch. These are **indicative, not a controlled timing comparison**: batch sizes differ (512 versus 64) and outputs predate the final cleanup/runtime confirmation. RNN timesteps depend on earlier states, limiting parallelism over time; FFNN layers process positions together. Re-measure selected models under stated conditions before drawing a final speed conclusion.
+
+**[PDF §8] Compare the selected RNN's CPU/GPU epoch time with matched settings.**
+
+**Pending completed benchmark and final variant selection.** The implementation recreates CPU/XPU or CPU/CUDA runs with identical initial weights, architecture, epochs, batch size and sample order, timing training only. An enabled flag is not a measured result; no saved speedup is available.
+
+**[PDF §8] Does processing calls sequentially outperform FFNN and BoW, including bigrams?**
+
+The saved vanilla RNN's **0.7131** exceeds the provisional FFNN scores **0.5744/0.6557**, but remains below unigram BoW **0.8029** and bigram BoW **0.8573**. These runs differ in settings/capacity, so the gap cannot be assigned solely to sequential processing. Useful local transitions, minority scarcity, optimization and generalization may contribute. The final best-RNN comparison awaits all completed variants and tuning.
+
+**[PDF §8; §4] Compare original/shuffled test for the frozen best RNN and interpret call order.**
+
+**Implemented, results pending.** After validation selection, shuffle all real calls within each full test sequence and then pad through the same loader. Reuse weights, vocabulary and threshold without retraining. Report macro-F1, per-class precision/recall, confusion matrices and changed predictions. A performance change indicates sensitivity to arrangement; unchanged aggregate metrics do not prove identical decisions. This ablation cannot separate local from longer-range effects. RUN_FINAL_TEST remains disabled in the reviewed setup.
+
+## [Our note] Execution and GPU compatibility
+
+The first cell selects TASKS and DEVICE; shared data/split/vocabulary preparation never trains skipped models. Cross-task tables include only completed models from the current session. Adam uses fused execution plus a gradient/step synchronization workaround on Intel XPU; CPU/CUDA keep PyTorch defaults. These runtime changes do not add layers, early stopping or regularization. Synthetic diagnostics and isolated timing tests are not substitutes for the required matched CPU/GPU experiment.
 
