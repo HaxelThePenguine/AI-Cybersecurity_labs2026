@@ -111,9 +111,6 @@ Our earlier raw-input attempt (run 1) was interrupted after 17 printed epochs an
 
 ### Task 2B - Why the fundamentals matter
 
-**[PDF §6.2] Predict, run and plot S1 (raw features), S2 (too-high LR), S3 (too-low LR); name/explain each failure, rank severity and diagnose curves.**
-
-We start from our scaled Task 2A baseline and vary one fundamental at a time, keeping the rest of the setup fixed. The predictions below were recorded **before** running S1-S3; we will compare them with our observed curves once the runs are complete.
 
 **[PDF §6.2 - Predict first] Expected loss curves.**
 
