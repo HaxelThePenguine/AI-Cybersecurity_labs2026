@@ -13,15 +13,10 @@
 The raw CSV contains **31,507 samples**, 16 numerical features and one label column. We retain Destination Port as a numerical feature, as required by the assignment.
 
 | Class | Raw samples | Raw % | Clean samples | Clean % | Removed |
-
 | --- | --- | --- | --- | --- | --- |
-
 | Benign | 20,000 | 63.48 | 19,240 | 65.48 | 760 |
-
 | DoS Hulk | 5,000 | 15.87 | 3,868 | 13.16 | 1,132 |
-
 | PortScan | 5,000 | 15.87 | 4,849 | 16.50 | 151 |
-
 | Brute Force | 1,507 | 4.78 | 1,427 | 4.86 | 80 |
 
 Brute Force is the rarest class before and after this cleaning. Benign is the majority. Our cleaning affects the classes unevenly, especially DoS Hulk, so we base our subsequent analysis on the cleaned distribution.
@@ -35,17 +30,11 @@ The raw file has **20 missing cells**, all in Flow Bytes/s, affecting 20 rows, a
 We remove incomplete rows, exact duplicates, non-finite rows, and rows negative in selected non-negative feature columns. The operations are sequential:
 
 | Step | Rows removed at this step | Rows remaining |
-
 | --- | --- | --- |
-
 | Raw CSV | - | 31,507 |
-
 | Drop missing values | 20 | 31,487 |
-
 | Drop exact duplicates | 2,094 | 29,393 |
-
 | Replace +/- infinity with NaN, then drop NaN | 7 | 29,386 |
-
 | Reject selected negative feature values | 2 | 29,384 |
 
 **2,123 rows are removed overall.** The raw duplicate count (2,111) differs from the 2,094 removed during deduplication because missing-value removal happens first; we therefore do not add these counts as independent raw-file totals.
@@ -61,17 +50,11 @@ The negative-value filter covers Flow Duration, Flow IAT Mean, Fwd PSH Flags, Bw
 We use two stratified splits with `random_state=42` produce approximately **70% train / 15% validation / 15% test**. Stratification preserves the rare Brute Force class in each partition.
 
 | Class | Train | Validation | Test |
-
 | --- | --- | --- | --- |
-
 | Benign | 13,467 | 2,886 | 2,887 |
-
 | Brute Force | 999 | 214 | 214 |
-
 | DoS Hulk | 2,708 | 580 | 580 |
-
 | PortScan | 3,394 | 728 | 727 |
-
 | Total | 20,568 | 4,408 | 4,408 |
 
 We fit LabelEncoder on training labels and reuse it for validation/test: Benign=0, Brute Force=1, DoS Hulk=2, PortScan=3. We fit both candidate scalers on training only. Fitting a scaler on all data would let held-out distributions affect preprocessing and compromise independent evaluation. We will select models/hyperparameters on validation and reserve test for the requested fixed-model evaluations.
@@ -85,11 +68,8 @@ We have implemented two candidate transformations: StandardScaler on all feature
 We computed the following training-only statistics to quantify the scale differences and long tails:
 
 | Feature | Minimum | Median | 99th percentile | Maximum |
-
 | --- | --- | --- | --- | --- |
-
 | Flow Duration | 1 | 31,094.5 | 117,651,856.57 | 119,998,546 |
-
 | Flow Bytes/s | 0 | 5,250.04 | 12,333,333 | 2,070,000,000 |
 
 Standardization centres/scales features but does not remove skewness or make it robust to extreme values: large values influence mean and standard deviation. Log1p compresses Flow Duration's upper tail and is defined at zero; applying it to this feature alone does not address every heavy-tailed feature. These observations motivate our scaling comparison, but we have not trained models to compare the two transformations yet and cannot claim a classification improvement.
@@ -124,6 +104,8 @@ We restore **epoch 98**, the minimum-validation-loss checkpoint (CE **0.11698**)
 Our losses drop from 0.7473/0.4903 (train/validation, epoch 1) to 0.1176/0.1174 (epoch 100). They remain close and flatten, without sustained validation deterioration. Improvement is still gradual near the end, so we cannot claim complete convergence.
 
 Our hardest-class prediction holds for **F1**: Brute Force is lowest at 0.8450. We detect 199/214 Brute Force flows (recall 0.9299), but 58/257 Brute Force predictions are false positives (precision 0.7743). Its weakness is therefore precision rather than uniquely low recall: DoS Hulk has slightly lower recall (0.9259). DoS Hulk performs well, but Benign has the highest F1 despite its low exploratory separability score. The heuristic did not correctly rank all classes. These results come from one seed/split; test remains unused.
+
+**[Our note] Why the Fisher-like heuristic misranked Benign (written after run 2; our recorded hypothesis above is unchanged).** The score separates the classes poorly: Benign, Brute Force and PortScan all fall between 0.09 and 0.17, so it gives no reliable ranking among them; only DoS Hulk stands out (1.05). It also ignores class frequencies, and Benign's one-vs-rest "rest" group combines three heterogeneous attack classes, which inflates the denominator. Class frequency matched the outcome better: Brute Force has 999 training samples, about 13.5 times fewer than Benign (13,467; roughly one order of magnitude) and 2.7-3.4 times fewer than DoS Hulk (2,708) and PortScan (3,394), and it has the lowest F1, although through precision rather than recall.
 
 Our earlier raw-input attempt (run 1) was interrupted after 17 printed epochs and has no classification report. Its configuration and result remain in our logbook.
 
@@ -196,13 +178,9 @@ We have logged two training attempts: our interrupted raw-input run and our comp
 **[PDF §2/§11] Required deliverables and reasoning.**
 
 - [ ] Report `groupID_lab1.pdf`, maximum 10 pages, with decisions, tables, curves and explanations tied to our results.
-
 - [ ] Complete logbook (separate or report appendix; excluded from page limit), including advance hypotheses for future runs.
-
 - [ ] Fully executed, rerunnable `.ipynb`, with outputs and appropriate seeds.
-
 - [ ] HTML export of the notebook.
-
 - [ ] Our final package `groupID_lab1.zip`, containing notebook/code, report, HTML and logbook.
 
 We use these notes and our logbook as working material for the final report. We have organized the notebook by task and marked our remaining work; the existing code and saved outputs are unchanged.
