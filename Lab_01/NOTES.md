@@ -142,11 +142,21 @@ We would still fix **scaling first**, then choose a sensible LR. Scaling address
 
 Very large, erratic losses would make us inspect feature scales and extreme values. Repeated sharp spikes would make us inspect an excessive LR. A smooth but slow decline would suggest a tiny LR and insufficient optimization time. These are diagnostic clues, not unique proofs: our controlled changes let us connect these particular curves to their causes.
 
-### Task 2C - Lock in the baseline
+### Task 2C - Lock in our baseline
 
-**[PDF §6.3] Report validation/test classification reports and generalization; switch activation as a controlled experiment and discuss test-set selection.**
+**[PDF §6.3] How do we choose and evaluate our baseline?**
 
-**Pending.** We have our Task 2A working baseline, but have not completed the Task 2C test evaluation or activation comparison. We will select the activation on validation; selecting it from test scores would make test part of our tuning process.
+Our editable setup is in `HP_2C`: width 64, batch 64, AdamW lr=5e-4, weight_decay=0.01, maximum 200 epochs, patience 20, min_delta=5e-5 and seed 42. Relative to run 2, we initially extend only the epoch budget. We use the same training-fitted StandardScaler and the shared training loop, which restores the lowest-validation-loss checkpoint.
+
+**Before training:** we expect a modest benefit from additional epochs and better validation performance from ReLU than from removing the hidden activation. We will check the per-class metrics rather than assume a benefit for every class.
+
+**[PDF §6.3] Does changing activation affect per-class behavior? Can we choose on test?**
+
+We train ReLU and Linear (Identity) candidates from identically seeded linear-layer weights, keeping all other settings fixed. We print each validation classification report, confusion matrix, loss, accuracy, macro precision/recall/F1, weighted F1, epochs and training time. We select the activation by validation macro-F1; ReLU wins an exact tie. Without a hidden nonlinearity, the two linear layers form an overall linear classifier.
+
+We then freeze our setup and evaluate only the selected model on test. Choosing between activations using test scores would turn test into tuning data and bias our generalization estimate. Our test cell is separate from tuning and reports the full classification report, confusion matrix and validation/test gaps, including per-class F1.
+
+**Results pending.** The code is ready; no Task 2C training or test evaluation has been executed yet. We will record the two training attempts in the logbook when run and judge generalization from the measured gaps.
 
 ## Task 3 - When a feature biases the model
 
