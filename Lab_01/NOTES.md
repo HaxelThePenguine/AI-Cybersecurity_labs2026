@@ -2,7 +2,7 @@
 
 **Labels:** `[PDF §...]` identifies questions/requests from the assignment (wording may be shortened). `[Our note]` identifies additional discussion. Pending answers are explicitly marked.
 
-**Current progress:** We have implemented Task 1 preprocessing and completed our Task 2A scaled classifier. We report validation results below. We have recorded our Task 2B predictions but have not run S1-S3 yet; Tasks 2B-6 remain pending. LOGBOOK.md contains our initial interrupted attempt and the completed baseline run. We have not evaluated test.
+**Current progress:** We have implemented Task 1 preprocessing and completed our Task 2A baselines and Task 2B comparisons. Our logbook contains runs 1-5; Task 2C and Tasks 3-6 remain pending. We have not evaluated test.
 
 ## Task 1 - Preprocessing
 
@@ -74,7 +74,7 @@ We computed the following training-only statistics to quantify the scale differe
 
 Standardization centres/scales features but does not remove skewness or make it robust to extreme values: large values influence mean and standard deviation. Log1p compresses Flow Duration's upper tail and is defined at zero; applying it to this feature alone does not address every heavy-tailed feature. These observations motivate our scaling comparison, but we have not trained models to compare the two transformations yet and cannot claim a classification improvement.
 
-**[Our note] Exploratory class separability.** We computed a one-vs-rest Fisher-like score and averaged it over features: Benign 0.092924, Brute Force 0.142394, PortScan 0.170629, DoS Hulk 1.046245. This is an exploratory heuristic, not a classifier result or proof of which class is hardest. Before Task 2A run 2, we predicted that Brute Force would be hardest and DoS Hulk easier; we compare this prediction with our results below.
+**[Our note] Exploratory class separability.** We computed a one-vs-rest Fisher-like score and averaged it over features: Benign 0.092924, Brute Force 0.142394, PortScan 0.170629, DoS Hulk 1.046245. This is an exploratory heuristic, not a classifier result or proof of which class is hardest. Before our first scaled Task 2A baseline, we predicted that Brute Force would be hardest and DoS Hulk easier; we compare this prediction with our results below.
 
 ## Task 2 - Your first network
 
@@ -86,7 +86,7 @@ We use 16 -> 64 -> 4, one hidden ReLU layer, unweighted cross-entropy, AdamW lr=
 
 **[PDF §6.1 - Predict first] Which classes do we expect to be hardest?**
 
-Before run 2, we expect Brute Force to be hardest because it has only 999 training samples (4.86%). DoS Hulk may be easier because its exploratory separability score is highest (1.046). Benign's low score (0.093) suggests possible difficulty despite its larger support. These are hypotheses, not conclusions from classification results.
+Before our first scaled baseline, we expected Brute Force to be hardest because it has only 999 training samples (4.86%). DoS Hulk may be easier because its exploratory separability score is highest (1.046). Benign's low score (0.093) suggests possible difficulty despite its larger support. These are hypotheses, not conclusions from classification results.
 
 **[PDF §6.1] How do we select the best epoch? Do the curves converge, and does our prediction hold?**
 
@@ -107,17 +107,40 @@ Our hardest-class prediction holds for **F1**: Brute Force is lowest at 0.8450. 
 
 **[Our note] Why the Fisher-like heuristic misranked Benign (written after run 2; our recorded hypothesis above is unchanged).** The score separates the classes poorly: Benign, Brute Force and PortScan all fall between 0.09 and 0.17, so it gives no reliable ranking among them; only DoS Hulk stands out (1.05). It also ignores class frequencies, and Benign's one-vs-rest "rest" group combines three heterogeneous attack classes, which inflates the denominator. Class frequency matched the outcome better: Brute Force has 999 training samples, about 13.5 times fewer than Benign (13,467; roughly one order of magnitude) and 2.7-3.4 times fewer than DoS Hulk (2,708) and PortScan (3,394), and it has the lowest F1, although through precision rather than recall.
 
-Our earlier raw-input attempt (run 1) was interrupted after 17 printed epochs and has no classification report. Its configuration and result remain in our logbook.
+Our exploratory raw-input attempt was interrupted; the numbered comparisons below refer to our completed scaled baselines and controlled Task 2B runs.
 
 ### Task 2B - Why the fundamentals matter
 
-**[PDF §6.2] Predict S1-S3, explain the curves, rank the damage and choose which fundamental to fix first.**
+**[PDF §6.2] What did we change and predict before training?**
 
-We reuse our run 2 setup (150 epochs, patience 20, min_delta=5e-5), resetting seed 42, model and optimizer for each run. S1 uses raw features; S2 uses lr=0.5; S3 uses lr=5e-6. All other settings remain fixed.
+We keep our run 2 setup: seed 42, the same split, FFNN 16 -> 64 -> 4 with ReLU, AdamW weight_decay=0.01, batch 64, maximum 150 epochs, patience 20 and min_delta=5e-5. Each variant starts from fresh, identically seeded weights and a new optimizer. S1 changes only scaling; S2 and S3 change only LR.
 
-Before training, we expect S2 > S1 > S3 in severity: excessive LR may prevent stable learning, raw inputs may make optimization erratic, and a tiny LR may mainly slow learning. We would fix scaling first, then choose LR. If lr=0.5 does not cause breakdown, we will test a higher value rather than claim failure.
+Before training, we expected S2 > S1 > S3 in severity: S2 would oscillate or diverge, S1 would have large/unstable losses, and S3 would improve too slowly. We expected scaling to be the first fundamental to fix.
 
-**Results pending.** The notebook now contains the shared training function, three configurations, loss plots and a validation comparison table. No S1-S3 training runs have been executed yet; we will log each completed attempt and revise our ranking from its measured results.
+**[PDF §6.2] What happened?**
+
+| Run | Setup | Val loss | Accuracy | Macro-F1 | Epochs | Best epoch | Train + val s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 | Scaled reference, lr=5e-4 | 0.10890 | 0.9578 | 0.9325 | 150 | 145 | 39.91 |
+| 3 | S1: raw inputs, lr=5e-4 | 1218.416544 | 0.9326 | 0.8931 | 35 | 15 | 9.24 |
+| 4 | S2: scaled, lr=0.5 | 0.333414 | 0.9363 | 0.8953 | 33 | 13 | 8.80 |
+| 5 | S3: scaled, lr=5e-6 | 0.370412 | 0.9004 | 0.7391 | 150 | 150 | 39.71 |
+
+All metrics use the minimum-validation-loss checkpoint, restored after training. Times include training and per-epoch validation. The notebook contains the three loss plots; test remains unused.
+
+- **S1 - missing scaling:** training starts with a loss around 78,000 and both curves remain large and erratic. Early stopping occurs at epoch 35; we restore epoch 15. Unequal feature scales make optimization poorly conditioned and can produce very large logits. Despite accuracy 0.9326, validation CE is 1218.416544: correct labels on many samples do not prevent a huge penalty from confident mistakes. The model learned useful boundaries, but its loss behavior is poor.
+- **S2 - excessive LR:** training and validation losses repeatedly spike; validation reaches roughly 14 before falling again. Large updates can overshoot low-loss regions instead of settling. Early stopping occurs at epoch 33; we restore epoch 13. Macro-F1 is 0.8953, below the reference. Our prediction of instability holds, but we did not observe sustained numerical divergence or complete learning failure at lr=0.5.
+- **S3 - tiny LR:** the curves decrease smoothly but slowly, from about 1.36 to 0.37. We reach all 150 epochs and the best checkpoint is the last one. This is slow optimization/under-training within our epoch budget, rather than the oscillation seen in S2. Macro-F1 falls to 0.7391 despite accuracy 0.9004.
+
+**[PDF §6.2] Rank the damage and choose which fundamental to fix first.**
+
+Using validation macro-F1, our observed ranking is **S3 > S1 > S2**, with S1 and S2 very close. Relative to the reference (0.9325), the drops are 0.1934, 0.0394 and 0.0372 respectively. Our initial severity ranking was wrong: the tiny LR hurts classification most within 150 epochs, even though its curve looks smoother. If we rank numerical loss behavior instead, S1 is the clearest failure; a single ranking does not describe every symptom. We have only one seeded run per variant and do not interpret the small S1/S2 difference as a robust ordering.
+
+We would still fix **scaling first**, then choose a sensible LR. Scaling addresses the feature-magnitude differences that make optimization difficult; the S3 result shows that scaling alone is not enough when updates are too small for the available budget. These runs change one fundamental at a time, not their interaction.
+
+**[PDF §6.2] What would the curve shape suggest if we did not know the change?**
+
+Very large, erratic losses would make us inspect feature scales and extreme values. Repeated sharp spikes would make us inspect an excessive LR. A smooth but slow decline would suggest a tiny LR and insufficient optimization time. These are diagnostic clues, not unique proofs: our controlled changes let us connect these particular curves to their causes.
 
 ### Task 2C - Lock in the baseline
 
@@ -177,7 +200,7 @@ Before training, we expect S2 > S1 > S3 in severity: excessive LR may prevent st
 
 **[PDF §4] One row per training run, task tag, one change, hypothesis BEFORE running, validation result and conclusion; about 25 runs in total.**
 
-We have logged two training attempts: our interrupted raw-input run and our completed scaled baseline. We recorded the second run's hypothesis before training. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
+Our logbook contains five numbered runs: two Task 2A baselines and S1-S3 for Task 2B. We recorded our S1-S3 hypotheses before training. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
 
 **[PDF §2/§11] Required deliverables and reasoning.**
 
