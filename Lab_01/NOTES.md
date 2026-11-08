@@ -2,7 +2,7 @@
 
 **Labels:** `[PDF §...]` identifies questions/requests from the assignment (wording may be shortened). `[Our note]` identifies additional discussion. Pending answers are explicitly marked.
 
-**Current progress:** We have completed Tasks 2A-2C and selected run 7 as our baseline. The logbook records runs 1-8 and the Linear comparison as 7bis. Task 3 counterfactual and port-free preprocessing are complete; The unweighted Task 4 baseline is complete; the weighted-loss comparison and Tasks 5-6 remain pending.
+**Current progress:** Tasks 2-4 are complete. Run 7 is our port-based reference and run 8 our selected port-free baseline. Tasks 5-6 remain pending.
 
 ## Task 1 - Preprocessing
 
@@ -259,44 +259,48 @@ We use this 15-feature dataset for the remaining tasks: a fresh stratified 70/15
 
 ## Task 4 - The rare class: loss and imbalance
 
-**[PDF §8 - Predict first] Which class do we expect to suffer most?**
+**[PDF §8] Our prediction and the unweighted baseline: can we still detect the rarest class?**
 
-We expect **PortScan** to be the hardest class because only **199 training samples** remain after removing Destination Port and deduplicating. There are few examples from which to learn its behavior, and its small contribution to ordinary cross-entropy may be outweighed by the larger classes. We expect low PortScan F1/recall and will check this prediction against the validation report. We record this hypothesis before training.
-
-**[PDF §8] Retrain the baseline and report per-class results. Can we still detect the rarest class?**
-
-We reuse the Task 2C configuration: 15 -> 64 -> 4 with ReLU, unweighted cross-entropy, AdamW lr=1e-3 and weight_decay=0.005, batch 64, maximum 200 epochs, patience 20, min_delta=5e-5, seed 42 and CPU. We initialize new weights, use the Task 3B training-fitted scaler and restore the minimum-validation-loss checkpoint. Evaluation uses validation only.
-
-We trained for **149 epochs**, with early stopping, and restored **epoch 129** (validation CE **0.10506**). Training plus per-epoch validation took **30.25 s**. The notebook contains the loss curves and classification report.
-
-| Class | Precision | Recall | F1 | Validation samples |
-| --- | --- | --- | --- | --- |
-| Benign | 0.9741 | 0.9803 | 0.9772 | 2533 |
-| Brute Force | 0.8696 | 0.9346 | 0.9009 | 214 |
-| DoS Hulk | 0.9777 | 0.9086 | 0.9419 | 580 |
-| PortScan | 0.5962 | 0.7209 | 0.6526 | 43 |
-
-**Accuracy: 0.9617; macro-F1: 0.8682. Our prediction is confirmed:** PortScan has the lowest per-class F1 and recall. Its few training examples and the changed feature representation are consistent with this difficulty; this run does not isolate their individual effects.
-
-**Can we still detect the rarest class? Yes:** we detect **31/43 PortScan flows**, recall **72.09%**. The 12 misses are nine Benign and three DoS Hulk predictions. There are also 21 false PortScan predictions (11 Benign and 10 Brute Force), so precision is only **59.62%** and F1 **0.6526**. The class remains detectable, but less reliably than the others. With only 43 validation examples, one changed prediction moves recall by about 2.33 percentage points.
-
-The validation confusion matrix is in the notebook. We keep this model as the unweighted port-free reference; the port-free test has not been evaluated.
+Before training, we expected PortScan to be hardest because only 199 training examples remain. This is confirmed: it has the lowest F1 (**0.6526**) and recall (**0.7209**), but we still detect **31/43** validation flows. The full per-class report and confusion matrix are in the notebook.
 
 ### Task 4B - Class-weighted cross-entropy
 
-**[PDF §8] From which partition do we compute class weights, and why?**
+**[PDF §8] From which partition do we compute weights, and why?**
 
-We compute balanced weights from **training labels only**, using `N / (4 * class_count)`. The weights change our training objective; using validation/test labels would leak held-out class-distribution information into training.
+Only **training labels**, using `N / (4 * class_count)`: Benign **0.3326**, Brute Force **3.9357**, DoS Hulk **1.4519**, PortScan **19.7575**. Using validation/test labels would let held-out class distributions influence our training objective. We change only loss weighting and keep initialization, data and hyperparameters fixed.
 
-**[PDF §8 - Predict first] What do we expect for accuracy and macro-F1?**
+**[PDF §8 - Predict first] Our hypothesis.**
 
-Our hypothesis is **slightly lower accuracy, higher macro-F1 and higher PortScan recall**. Giving rare attacks more weight should reduce missed PortScan flows, possibly increasing false alarms. PortScan precision is already 0.5962, so we will check whether recall gains compensate for any precision loss. We record this prediction before the weighted run.
+We expected slightly lower accuracy, higher macro-F1 and higher PortScan recall, with possible additional false alarms. We recorded this before the weighted run.
 
-**[PDF §8] Did accuracy and macro-F1 move together? Which metric should we optimize?**
+**[PDF §8] Did accuracy and macro-F1 move in the same direction?**
 
-Results pending. Our unweighted reference has accuracy **0.96172**, macro-F1 **0.86815** and PortScan recall **0.7209**. We keep all settings and initial weights fixed, changing only to weighted cross-entropy, then compare validation results. Weighted loss is used for the new run's checkpoint selection; the summary table reports ordinary CE for both models so its loss values remain comparable.
+Yes: **both decrease**, by **4.60** and **9.66 percentage points** respectively. Our recall prediction holds, but our macro-F1 prediction does not.
 
-We prioritize **macro-F1**, since each class contributes equally rather than allowing Benign to dominate. We also monitor rare-class recall and false alarms: a high overall score is insufficient if rare attacks are missed, and recall gains alone do not justify unlimited false positives.
+| Validation metric | Unweighted (run 8) | Weighted (run 9) |
+| --- | --- | --- |
+| Accuracy | 0.96172 | 0.91573 |
+| Macro-F1 | 0.86815 | 0.77160 |
+| PortScan precision | 0.5962 | 0.2515 |
+| PortScan recall | 0.7209 | 0.9535 |
+| PortScan F1 | 0.6526 | 0.3981 |
+| PortScan detected | 31/43 | 41/43 |
+| Ordinary cross-entropy | 0.10506 | 0.20914 |
+
+Weights recover 10 additional PortScan flows, but false PortScan predictions increase from **21 to 122**, overwhelming the recall gain. Reweighting improves detection coverage here, not overall classification quality.
+
+| Class | Unweighted F1 | Weighted F1 |
+| --- | --- | --- |
+| Benign | 0.9772 | 0.9511 |
+| Brute Force | 0.9009 | 0.8523 |
+| DoS Hulk | 0.9419 | 0.8849 |
+| PortScan | 0.6526 | 0.3981 |
+
+Run 9 stops at epoch **137**, restoring epoch **117**; time **28.40 s**. Its best weighted validation CE is **0.18363**; the table uses ordinary CE for both models. Run 8's current saved time is **30.14 s**. Times include training and per-epoch validation; the port-free test remains untouched.
+
+**[PDF §8] Which metric should we optimize for an intrusion detector, and why?**
+
+We prioritize **macro-F1**, which treats every class equally and balances precision with recall. Accuracy can hide missed rare attacks; recall alone can reward excessive false alarms. We therefore also inspect rare-attack recall and precision. We retain **run 8** as our port-free reference: its macro-F1 is higher, while run 9 shows the cost of buying more rare-attack coverage.
 
 ## Task 5 - Varying the hyperparameters
 
@@ -334,7 +338,7 @@ We prioritize **macro-F1**, since each class contributes equally rather than all
 
 **[PDF §4] One row per training run, task tag, one change, hypothesis BEFORE running, validation result and conclusion; about 25 runs in total.**
 
-Our logbook contains nine training entries, labelled 1-8 and 7bis: two Task 2A baselines, S1-S3, the selected ReLU configurations, the controlled Linear comparison and the unweighted port-free baseline. We recorded our S1-S3 hypotheses before training. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
+Our logbook contains ten training entries (1-9 and 7bis), including the weighted-loss comparison. Hypotheses and validation results are recorded with the runs. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
 
 **[PDF §2/§11] Required deliverables and reasoning.**
 
