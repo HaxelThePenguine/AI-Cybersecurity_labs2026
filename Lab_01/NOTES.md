@@ -1,16 +1,14 @@
 # Lab 1 - Answers and notes
 
-**Labels:** `[PDF §...]` identifies questions/requests from the assignment (wording may be shortened). `[Our note]` identifies additional discussion. Pending answers are explicitly marked.
+`[PDF §...]` marks assignment questions. Results are from the saved notebook; historical runs are identified explicitly.
 
-**Current progress:** Tasks 2-4 and Task 5A are complete. Run 8 is our simple port-free reference; run 10 is the best depth candidate so far. Tasks 5B-5D and 6 remain pending.
+**Status:** Tasks 2-4 and 5A are complete. Run 8 is our simple port-free reference; **run 10 (64 -> 64)** is our best depth candidate. Tasks 5B-5D and 6 are pending.
 
 ## Task 1 - Preprocessing
 
-### 1. Inspect the data
+**[PDF §5.1] Samples, class balance and data quality.**
 
-**[PDF §5.1] Report samples, classes, balance and data-quality issues.**
-
-The raw CSV contains **31,507 samples**, 16 numerical features and one label column. We retain Destination Port as a numerical feature, as required by the assignment.
+The CSV contains 31,507 flows, 16 numerical features and Label. We initially retain Destination Port as numerical.
 
 | Class | Raw samples | Raw % | Clean samples | Clean % | Removed |
 | --- | --- | --- | --- | --- | --- |
@@ -19,15 +17,13 @@ The raw CSV contains **31,507 samples**, 16 numerical features and one label col
 | PortScan | 5,000 | 15.87 | 4,849 | 16.50 | 151 |
 | Brute Force | 1,507 | 4.78 | 1,427 | 4.86 | 80 |
 
-Brute Force is the rarest class before and after this cleaning. Benign is the majority. Our cleaning affects the classes unevenly, especially DoS Hulk, so we base our subsequent analysis on the cleaned distribution.
+Brute Force is initially rarest. We find 20 missing Flow Bytes/s values and 2,111 duplicate rows. After cleaning, no missing/infinite/negative values or constant features remain. Two feature pairs are identical in this subset: Fwd PSH Flags/SYN Flag Count and Subflow Fwd Packets/Total Fwd Packets. We retain the supplied features for consistency.
 
-The raw file has **20 missing cells**, all in Flow Bytes/s, affecting 20 rows, and **2,111 duplicate rows** (`duplicated().sum()`, excluding first occurrences). Our pipeline additionally removes rows with infinities and selected negative measurements. The final dataset has no missing values, infinities or exact duplicate rows. We still need to complete our checks for implausible/degenerate values: our current negative-value filter does not cover every feature.
+Seven distinct feature vectors have conflicting Benign/DoS Hulk labels. We retain these ambiguous observations rather than assign an unsupported replacement label.
 
-### 2. Cleaning decisions
+**[PDF §5.2] Cleaning policy and sample counts.**
 
-**[PDF §5.2] What did you do with missing values/duplicates, why, and how many samples remain?**
-
-We remove incomplete rows, exact duplicates, non-finite rows, and rows negative in selected non-negative feature columns. The operations are sequential:
+We remove incomplete/non-finite observations rather than impute them, and deduplicate before splitting to avoid repeating identical labelled rows across partitions. Negative durations/counts/lengths and ports are rejected using explicitly named columns.
 
 | Step | Rows removed at this step | Rows remaining |
 | --- | --- | --- |
@@ -37,17 +33,11 @@ We remove incomplete rows, exact duplicates, non-finite rows, and rows negative 
 | Replace +/- infinity with NaN, then drop NaN | 7 | 29,386 |
 | Reject selected negative feature values | 2 | 29,384 |
 
-**2,123 rows are removed overall.** The raw duplicate count (2,111) differs from the 2,094 removed during deduplication because missing-value removal happens first; we therefore do not add these counts as independent raw-file totals.
+The steps remove 2,123 rows. Only 2,094 duplicates remain after missing-value removal, explaining the difference from the raw duplicate count. Deduplication changes class frequencies, so we report the cleaned balance rather than interpret it as real traffic prevalence.
 
-The negative-value filter covers Flow Duration, Flow IAT Mean, Fwd PSH Flags, Bwd Packet Length Mean, Bwd Packet Length Max, SYN Flag Count, Fwd Packet Length Mean, Fwd IAT Std, Packet Length Mean, Fwd Packet Length Max, Subflow Fwd Packets, Total Fwd Packets and Destination Port. We currently select these columns by position; we still need to replace the indices with explicit names to make this choice clearer. Flow Bytes/s, Flow Packets/s and Down/Up Ratio are not covered by that filter.
+**[PDF §5.3] Split, stratification and leakage.**
 
-**[Our note] Our cleaning rationale.** We remove the few incomplete/non-finite rows rather than impute their values. We deduplicate before splitting to prevent identical full rows from appearing across partitions, while recognizing that this changes empirical traffic frequencies and may remove genuine repeated flows. We reject negative durations/counts/lengths because these measurements should be non-negative. We documented this rationale after implementing the pipeline. We still need to check the remaining feature-validity conditions and possible conflicting labels.
-
-### 3. Split and label encoding
-
-**[PDF §5.3] Which split, should it be stratified, and where do you fit preprocessing?**
-
-We use two stratified splits with `random_state=42` produce approximately **70% train / 15% validation / 15% test**. Stratification preserves the rare Brute Force class in each partition.
+We use a stratified 70/15/15 split with random_state=42, preserving minority-class representation. LabelEncoder and both candidate scalers are fitted on training only and reused unchanged on validation/test. Fitting on all data would expose held-out distributions to preprocessing.
 
 | Class | Train | Validation | Test |
 | --- | --- | --- | --- |
@@ -57,43 +47,37 @@ We use two stratified splits with `random_state=42` produce approximately **70% 
 | PortScan | 3,394 | 728 | 727 |
 | Total | 20,568 | 4,408 | 4,408 |
 
-We fit LabelEncoder on training labels and reuse it for validation/test: Benign=0, Brute Force=1, DoS Hulk=2, PortScan=3. We fit both candidate scalers on training only. Fitting a scaler on all data would let held-out distributions affect preprocessing and compromise independent evaluation. We will select models/hyperparameters on validation and reserve test for the requested fixed-model evaluations.
+Labels are Benign=0, Brute Force=1, DoS Hulk=2, PortScan=3.
 
-### 4. Scaling, tails and exploratory statistics
+**[PDF §5.4] Scaling and outliers.**
 
-**[PDF §5.4] Which scaling was picked and why? How do outliers inform the choice?**
-
-We have implemented two candidate transformations: StandardScaler on all features, and log1p on Flow Duration followed by StandardScaler on all features. Histograms compare the transformed training Flow Duration. We use StandardScaler for Task 2A, fitting it on training only and passing the standardized arrays to the model. It addresses the large differences in feature scale while keeping our starting pipeline simple. We have not trained the log1p alternative, so we cannot claim it is better or worse.
-
-We computed the following training-only statistics to quantify the scale differences and long tails:
+We use StandardScaler to address large differences in feature magnitude. Training statistics show long tails:
 
 | Feature | Minimum | Median | 99th percentile | Maximum |
 | --- | --- | --- | --- | --- |
 | Flow Duration | 1 | 31,094.5 | 117,651,856.57 | 119,998,546 |
 | Flow Bytes/s | 0 | 5,250.04 | 12,333,333 | 2,070,000,000 |
 
-Standardization centres/scales features but does not remove skewness or make it robust to extreme values: large values influence mean and standard deviation. Log1p compresses Flow Duration's upper tail and is defined at zero; applying it to this feature alone does not address every heavy-tailed feature. These observations motivate our scaling comparison, but we have not trained models to compare the two transformations yet and cannot claim a classification improvement.
+StandardScaler does not remove skewness and remains sensitive to extremes. We also inspect log1p(Flow Duration)+standardization, which compresses that tail, but have not trained that alternative. Our choice is a simple reference, not a claim of optimal scaling.
 
-**[Our note] Exploratory class separability.** We computed a one-vs-rest Fisher-like score and averaged it over features: Benign 0.092924, Brute Force 0.142394, PortScan 0.170629, DoS Hulk 1.046245. This is an exploratory heuristic, not a classifier result or proof of which class is hardest. Before our first scaled Task 2A baseline, we predicted that Brute Force would be hardest and DoS Hulk easier; we compare this prediction with our results below.
+Our exploratory mean one-vs-rest scores are Benign 0.0929, Brute Force 0.1424, PortScan 0.1706 and DoS Hulk 1.0462. They summarize individual-feature separation and do not predict nonlinear classifier performance reliably.
 
 ## Task 2 - Your first network
 
 ### Task 2A - Minimal classifier
 
-**[PDF §6.1] Our setup and historical attempts.**
+**[PDF §6.1] Configuration and historical attempts.**
 
-We use 16 -> 64 -> 4, ReLU, unweighted cross-entropy, AdamW lr=5e-4 and weight_decay=0.01, batch 64, seed 42 and CPU (one thread). We standardize using training-only statistics and restore the lowest-validation-loss checkpoint. The two attempts below are historical stages of the same baseline; the notebook currently shows **run 2**.
+We use 16 -> 64 -> 4, ReLU, ordinary cross-entropy, AdamW lr=5e-4/weight_decay=0.01, batch 64, seed 42 and CPU. Each checkpoint is selected by minimum validation loss; min_delta controls the patience counter. The current notebook shows run 2.
 
 | Run | Historical attempt | Maximum epochs | Patience | min_delta | Best epoch | Val loss | Accuracy | Macro-F1 | Train + val s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | First attempt | 100 | 20 | 1e-4 | 98 | 0.11698 | 0.9519 | 0.9234 | 26.55 |
-| 2 | Second attempt; current notebook output | 150 | 20 | 5e-5 | 145 | 0.10890 | 0.9578 | 0.9325 | 41.57 |
+| 2 | Second attempt; current notebook output | 150 | 20 | 5e-5 | 145 | 0.10890 | 0.9578 | 0.9325 | 39.12 |
 
-**[PDF §6.1 - Predict first] Which classes did we expect to be hardest?**
+**Prediction before the first scaled run:** Brute Force would be hardest because it has only 999 training samples; DoS Hulk might be easier given its higher exploratory separation score. Benign's low score suggested possible difficulty despite its larger support.
 
-Before our first scaled attempt, we expected Brute Force to be hardest because it has only 999 training samples (4.86%). DoS Hulk's higher exploratory separability score suggested easier classification; Benign's low score suggested possible difficulty despite its larger support.
-
-**Run 1 - first attempt, 100 epochs (historical validation report).**
+**Historical run 1, 100 epochs:**
 
 | Class | Precision | Recall | F1 | Support |
 | --- | --- | --- | --- | --- |
@@ -102,9 +86,7 @@ Before our first scaled attempt, we expected Brute Force to be hardest because i
 | DoS Hulk | 0.9711 | 0.9259 | 0.9479 | 580 |
 | PortScan | 0.9403 | 0.9299 | 0.9351 | 728 |
 
-Brute Force had the lowest F1 (0.8450), mainly due to precision (0.7743), despite recall 0.9299. Our prediction held for F1, but not as a prediction of uniquely low recall.
-
-**Run 2 - second attempt, 150 epochs (report currently saved in the notebook).**
+**Run 2, 150 epochs, currently saved:**
 
 | Class | Precision | Recall | F1 | Support |
 | --- | --- | --- | --- | --- |
@@ -113,58 +95,44 @@ Brute Force had the lowest F1 (0.8450), mainly due to precision (0.7743), despit
 | DoS Hulk | 0.9907 | 0.9207 | 0.9544 | 580 |
 | PortScan | 0.9496 | 0.9313 | 0.9404 | 728 |
 
-Brute Force remains the hardest class by F1 (0.8652), with higher precision (0.8089) and unchanged recall (0.9299). Macro-F1 improves from 0.9234 to 0.9325. Epoch budget and min_delta both changed, so this is not an isolated one-factor comparison.
+**[PDF §6.1] Best epoch, convergence and per-class interpretation.**
 
-**[PDF §6.1] Best checkpoint and convergence.**
+We restore epochs 98 and 145 respectively. Neither run triggers early stopping. Final train/validation CE is 0.1176/0.1174 for run 1 and 0.10901/0.11041 for run 2: curves flatten together without sustained validation deterioration, although small improvements continue.
 
-We select by minimum validation loss, rather than automatically keeping the final epoch: epoch 98 for run 1 and epoch 145 for run 2. Early stopping did not trigger in either attempt. In run 1, train/validation losses end at 0.1176/0.1174; in run 2 they end at 0.10901/0.11041. The curves stay close and flatten, without sustained validation deterioration. Continued small improvements do not establish complete convergence. Both attempts use validation only.
-
-**[Our note] Why the Fisher-like heuristic misranked Benign (written after run 2; our recorded hypothesis above is unchanged).** The score separates the classes poorly: Benign, Brute Force and PortScan all fall between 0.09 and 0.17, so it gives no reliable ranking among them; only DoS Hulk stands out (1.05). It also ignores class frequencies, and Benign's one-vs-rest "rest" group combines three heterogeneous attack classes, which inflates the denominator. Class frequency matched the outcome better: Brute Force has 999 training samples, about 13.5 times fewer than Benign (13,467; roughly one order of magnitude) and 2.7-3.4 times fewer than DoS Hulk (2,708) and PortScan (3,394), and it has the lowest F1, although through precision rather than recall.
+Brute Force has the lowest F1 in both runs (0.8450 -> 0.8652), supporting our prediction. Its recall stays 0.9299 while precision improves (0.7743 -> 0.8089); it is not uniquely weakest by recall. Benign performs best despite its low exploratory score. The heuristic averages features, misses nonlinear interactions and compares Benign with a heterogeneous mixture of attack classes. Class frequency is consistent with the outcome, but does not prove its cause. Run 2 changes both the epoch budget and min_delta, so the gain is not attributable to epochs alone.
 
 ### Task 2B - Why the fundamentals matter
 
-**[PDF §6.2] What did we change and predict before training?**
+**[PDF §6.2] Hypotheses and controlled changes.**
 
-We keep our run 2 setup: seed 42, the same split, FFNN 16 -> 64 -> 4 with ReLU, AdamW weight_decay=0.01, batch 64, maximum 150 epochs, patience 20 and min_delta=5e-5. Each variant starts from fresh, identically seeded weights and a new optimizer. S1 changes only scaling; S2 and S3 change only LR.
-
-Before training, we expected S2 > S1 > S3 in severity: S2 would oscillate or diverge, S1 would have large/unstable losses, and S3 would improve too slowly. We expected scaling to be the first fundamental to fix.
-
-**[PDF §6.2] What happened?**
+Relative to run 2, S1 changes only to raw features; S2 raises LR to 0.5; S3 lowers it to 5e-6. We reset model, optimizer and seed for every run. Before training, we predicted unstable large losses for S1, oscillation/divergence for S2 and slow learning for S3, with expected damage S2 > S1 > S3.
 
 | Run | Setup | Val loss | Accuracy | Macro-F1 | Epochs | Best epoch | Train + val s |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2 | Scaled reference, lr=5e-4 | 0.10890 | 0.9578 | 0.9325 | 150 | 145 | 41.57 |
+| 2 | Scaled reference, lr=5e-4 | 0.10890 | 0.9578 | 0.9325 | 150 | 145 | 39.12 |
 | 3 | S1: raw inputs, lr=5e-4 | 1218.416544 | 0.9326 | 0.8931 | 35 | 15 | 9.24 |
 | 4 | S2: scaled, lr=0.5 | 0.333414 | 0.9363 | 0.8953 | 33 | 13 | 8.80 |
 | 5 | S3: scaled, lr=5e-6 | 0.370412 | 0.9004 | 0.7391 | 150 | 150 | 39.71 |
 
-All metrics use the minimum-validation-loss checkpoint, restored after training. Times include training and per-epoch validation. The notebook contains the three loss plots; test remains unused.
+**[PDF §6.2] Failure modes and diagnosis from curves.**
 
-- **S1 - missing scaling:** training starts with a loss around 78,000 and both curves remain large and erratic. Early stopping occurs at epoch 35; we restore epoch 15. Unequal feature scales make optimization poorly conditioned and can produce very large logits. Despite accuracy 0.9326, validation CE is 1218.416544: correct labels on many samples do not prevent a huge penalty from confident mistakes. The model learned useful boundaries, but its loss behavior is poor.
-- **S2 - excessive LR:** training and validation losses repeatedly spike; validation reaches roughly 14 before falling again. Large updates can overshoot low-loss regions instead of settling. Early stopping occurs at epoch 33; we restore epoch 13. Macro-F1 is 0.8953, below the reference. Our prediction of instability holds, but we did not observe sustained numerical divergence or complete learning failure at lr=0.5.
-- **S3 - tiny LR:** the curves decrease smoothly but slowly, from about 1.36 to 0.37. We reach all 150 epochs and the best checkpoint is the last one. This is slow optimization/under-training within our epoch budget, rather than the oscillation seen in S2. Macro-F1 falls to 0.7391 despite accuracy 0.9004.
+- **S1:** losses are large and erratic, starting near 78,000 in training. Unequal input scales make optimization difficult and can produce extreme logits. Good accuracy can coexist with huge CE because confident mistakes are heavily penalized.
+- **S2:** repeated sharp spikes show unstable updates consistent with overshooting. The run learns something useful; lr=0.5 does not cause sustained numerical divergence.
+- **S3:** losses fall smoothly but slowly; the best checkpoint is epoch 150. It is under-optimized within the fixed budget, rather than unstable.
 
-**[PDF §6.2] Rank the damage and choose which fundamental to fix first.**
+**[PDF §6.2] Ranking and which fundamental to fix first.**
 
-Using validation macro-F1, our observed ranking is **S3 > S1 > S2**, with S1 and S2 very close. Relative to the reference (0.9325), the drops are 0.1934, 0.0394 and 0.0372 respectively. Our initial severity ranking was wrong: the tiny LR hurts classification most within 150 epochs, even though its curve looks smoother. If we rank numerical loss behavior instead, S1 is the clearest failure; a single ranking does not describe every symptom. We have only one seeded run per variant and do not interpret the small S1/S2 difference as a robust ordering.
+By validation macro-F1, observed damage is **S3 > S1 > S2**: drops of 0.1934, 0.0394 and 0.0372 from the reference. Our ranking prediction was wrong; S1/S2 are nearly tied. By numerical loss behavior, S1 is clearly worst. Curve shapes suggest causes but are not unique diagnoses.
 
-We would still fix **scaling first**, then choose a sensible LR. Scaling addresses the feature-magnitude differences that make optimization difficult; the S3 result shows that scaling alone is not enough when updates are too small for the available budget. These runs change one fundamental at a time, not their interaction.
-
-**[PDF §6.2] What would the curve shape suggest if we did not know the change?**
-
-Very large, erratic losses would make us inspect feature scales and extreme values. Repeated sharp spikes would make us inspect an excessive LR. A smooth but slow decline would suggest a tiny LR and insufficient optimization time. These are diagnostic clues, not unique proofs: our controlled changes let us connect these particular curves to their causes.
+We would fix **scaling first**, then LR: sensible magnitudes make optimization easier to tune, while S3 shows that scaling cannot compensate for updates that are too small.
 
 ### Task 2C - Lock in our baseline
 
-**[PDF §6.3] Which model is our baseline?**
+**[PDF §6.3] Selected port-based baseline.**
 
-We lock **run 7**: StandardScaler fitted on training only; 16 -> 64 -> 4 with ReLU; unweighted cross-entropy; AdamW lr=1e-3, weight_decay=0.005; batch 64; maximum 200 epochs; patience 20; min_delta=5e-5; seed 42; CPU. We restore the minimum-validation-loss checkpoint at **epoch 196**. Training plus per-epoch validation took **50.33 s for ReLU alone**.
+Run 7 uses 16 -> 64 -> 4, ReLU, ordinary CE, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42. We restore epoch 196. Run 6 changed both LR and epoch budget relative to run 2; run 7 then changed only weight decay (0.01 -> 0.005), improving validation macro-F1 by 0.00059. This is a small single-seed gain.
 
-Compared with run 6, we changed only weight decay (0.01 -> 0.005). Validation macro-F1 increases from 0.95076 to **0.95135** (+0.00059), accuracy from 0.96688 to **0.96756**, and loss decreases from 0.09209 to **0.08986**. We retain this as our best measured baseline, while recognizing that the improvement is small and comes from one seed. The earlier run 2 -> run 6 comparison changed both LR and epoch budget, so it does not isolate the LR effect.
-
-**[PDF §6.3] Compare validation and test. Does it generalize?**
-
-The full classification reports and confusion-matrix heatmaps are in the notebook.
+**[PDF §6.3] Validation versus test: does it generalize?**
 
 | Partition | Cross-entropy | Accuracy | Macro-F1 |
 | --- | --- | --- | --- |
@@ -178,11 +146,11 @@ The full classification reports and confusion-matrix heatmaps are in the noteboo
 | DoS Hulk | 0.9555 | 0.9608 |
 | PortScan | 0.9481 | 0.9441 |
 
-Test - validation is **+0.02 percentage points in accuracy** and **+0.38 points in macro-F1**. Per-class F1 is also close; the largest difference is Brute Force (+0.0147). These results support good generalization on this stratified split. We freeze this baseline now.
+The gaps are small: test - validation is +0.02 percentage points in accuracy and +0.38 in macro-F1; the largest class-F1 difference is Brute Force (+0.0147). This supports generalization on this stratified split, not necessarily on different networks or future traffic.
 
-**[PDF §6.3] Does switching the activation change per-class behavior?**
+**[PDF §6.3] Activation comparison and test-set selection.**
 
-Our advance prediction was that ReLU would outperform Linear, particularly on the harder classes. We compare them with identical initialization and settings, including weight_decay=0.005. Linear means Identity between the two linear layers, giving an overall linear classifier.
+Before training, we expected ReLU to outperform Linear. Both start from the same seeded linear-layer weights and use identical settings. Linear means Identity between the layers, so the whole classifier is linear.
 
 | Class | ReLU precision | ReLU recall | ReLU F1 | Linear precision | Linear recall | Linear F1 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -191,31 +159,17 @@ Our advance prediction was that ReLU would outperform Linear, particularly on th
 | DoS Hulk | 0.9665 | 0.9448 | 0.9555 | 0.9941 | 0.8672 | 0.9263 |
 | PortScan | 0.9685 | 0.9286 | 0.9481 | 0.7827 | 0.9299 | 0.8500 |
 
-ReLU has validation macro-F1 **0.95135**, versus **0.87240** for Linear. The biggest F1 loss without ReLU is on Brute Force (0.9238 -> 0.7737): recall falls from 0.9346 to 0.7430. PortScan precision also drops sharply (0.9685 -> 0.7827), while DoS Hulk loses recall (0.9448 -> 0.8672) despite higher precision. The nonlinear model provides a better balance here; the benefit is not identical across classes. ReLU completes 200 epochs, restoring epoch 196; Linear stops at 75, restoring epoch 55. Linear (run 7bis) took **18.05 s**, separate from ReLU's 50.33 s.
+ReLU confirms our prediction (macro-F1 0.95135 versus 0.87240). Linear particularly loses Brute Force recall and PortScan precision. ReLU restores epoch 196/200; Linear restores 55/75. Their times are **52.36 s** and **18.87 s**, respectively, not a combined time.
 
-**[PDF §6.3] Would comparing the activations on test be fair for selection?**
-
-No. We choose the activation and hyperparameters using validation macro-F1, with checkpoint selection by validation loss. Choosing from test scores would make test part of tuning and bias the reported generalization estimate. We evaluate only the selected ReLU model on test.
+We choose configurations/activations by validation macro-F1 and checkpoints by validation loss. Using test scores to choose would turn test into tuning data; we evaluate the selected ReLU model there.
 
 ## Task 3 - When a feature biases the model
 
-**[PDF §7] Is Brute Force always on port 80 a general property? What might our model learn?**
+**[PDF §7] Port-80 artefact and prediction before inference.**
 
-We think our model may indeed have learned a port-based shortcut: all Brute Force flows in our dataset use Destination Port 80. We verified 1,507/1,507 in the raw data, 1,427/1,427 after cleaning and 214/214 in our test split. This association is an artefact of this dataset, not a general property of brute-force attacks, which can target services on other ports. The association makes port 80 a possible clue for our model; it does not establish that the model uses only that feature.
+All Brute Force flows use port 80: 1,507 raw, 1,427 cleaned and 214 in test. This is a dataset association, not a general property of brute-force attacks. We expected recall to drop if the model had learned this shortcut.
 
-**[PDF §7 - Predict first] What do we expect after changing Brute Force test ports from 80 to 8080?**
-
-Before inference, we expect Brute Force recall to decrease: if our baseline relies on the port-80 association, changing that feature could make it miss otherwise identical Brute Force flows. We did not predict its exact size.
-
-**[PDF §7] Counterfactual test without retraining.**
-
-We reuse our trained Task 2C baseline (run 7) and its fitted StandardScaler. We copy the original raw test features and change only Destination Port for the 214 Brute Force samples, from 80 to 8080. We keep all labels, other feature values, non-Brute-Force samples, training and validation data unchanged. We transform both test versions with the existing scaler; we do not fit preprocessing again or retrain the network.
-
-The Task 3 cells print both classification reports, confusion-matrix heatmaps, aggregate metrics, Brute Force recall before/after and the number of changed predictions. They also check that the model weights, original test inputs and non-Brute-Force predictions remain unchanged.
-
-**[PDF §7] Did our prediction hold? What does this reveal about our model?**
-
-Yes, our prediction was confirmed. Changing only Destination Port from 80 to 8080 for the 214 Brute Force test flows reduces their recall from **0.9626 to 0.0374**, a drop of **92.52 percentage points**. We correctly detect **206/214** before the change, but only **8/214** afterwards. All **198 changed predictions** move from Brute Force to Benign; the eight flows originally predicted as PortScan remain PortScan. Predictions for every non-Brute-Force sample remain unchanged.
+We change only the 214 Brute Force test ports, 80 -> 8080, keeping labels, other inputs, model weights and the fitted scaler fixed. No fitting or retraining is involved.
 
 | Metric | Original test | Brute Force port 8080 |
 | --- | --- | --- |
@@ -226,13 +180,13 @@ Yes, our prediction was confirmed. Changing only Destination Port from 80 to 808
 | Macro-F1 | 0.95516 | 0.72906 |
 | Cross-entropy | 0.08612 | 0.40250 |
 
-This makes us think that our model had learned a strong shortcut linking Brute Force to port 80. Its Brute Force detection almost collapses when that single feature changes, even though the remaining flow characteristics and model weights are identical. In this experiment, detection depends heavily on the dataset's port association rather than robust, port-independent Brute Force behavior. The model may still use other features, but they do not preserve detection after this change.
+**[PDF §7] Did our prediction hold, and what did the model learn?**
 
-The overall accuracy still exceeds 92% because Brute Force accounts for only 214/4,408 test samples. Macro-F1 and per-class recall expose the failure that accuracy alone would hide. We performed inference only with the unchanged Task 2C baseline and fitted scaler; this comparison adds no training run.
+Yes: recall drops by **92.52 percentage points**, from 206/214 detected to 8/214. All 198 changed predictions become Benign; non-Brute-Force predictions stay unchanged. This supports heavy reliance on the port-80 shortcut. It does not establish that the model used no other feature. Accuracy still exceeds 92% because Brute Force represents only 214/4,408 test flows; per-class recall and macro-F1 expose the failure.
 
 ### Task 3B - Port-free preprocessing
 
-**[PDF §7] 1. Class counts before and after cleaning without the port.**
+**[PDF §7] 1. Class counts before and after removing the port.**
 
 | Class | With port | Without port |
 | --- | --- | --- |
@@ -241,41 +195,35 @@ The overall accuracy still exceeds 92% because Brute Force accounts for only 214
 | DoS Hulk | 3,868 | 3,868 |
 | PortScan | 4,849 | 285 |
 
-PortScan loses **4,564 samples (94.12%)**. Total samples fall from 29,384 to 22,468. Benign also decreases by 12.22%; the other two classes remain unchanged.
+PortScan loses **4,564 samples (94.12%)**. Total cleaned samples fall from 29,384 to 22,468. Benign also decreases by 12.22%; the other two classes are unchanged.
 
-**[PDF §7] 2. Why does PortScan collapse, and what did the model know?**
+**[PDF §7] 2. Why the collapse, and what did the model know?**
 
-Many PortScan rows differed only in destination port; removing it makes them duplicates. Our model could exploit port-specific structure, so its earlier scores did not establish recognition of diverse, port-independent scan behavior.
+Many PortScan rows differed only in destination port. Removing it makes their labelled feature vectors identical. Earlier performance could exploit this port-specific structure rather than diverse, port-independent scan behavior.
 
 **[PDF §7] 3. Rarest class and balance.**
 
-PortScan is now rarest: **285 samples (1.27%)**. Benign is 75.16%, DoS Hulk 17.22%, and Brute Force 6.35%. The largest-to-smallest class ratio rises from about 13.5:1 to **59.3:1**.
+PortScan is now rarest: **285 samples (1.27%)**. Benign is 75.16%, DoS Hulk 17.22% and Brute Force 6.35%. The largest/smallest class ratio rises from about 13.5:1 to **59.3:1**.
 
 **[PDF §7] 4. Do we still deduplicate?**
 
-Yes. We remove duplicates to avoid identical labelled vectors appearing across training and held-out partitions. Retaining repetitions would inflate counts without adding information; we accept fewer PortScan examples and greater uncertainty in its metrics.
+Yes: repeated labelled vectors could otherwise occur across training and held-out partitions without adding feature information. We accept fewer unique PortScan examples and greater metric uncertainty. Feature-only conflicts are different: 103 patterns still carry different labels (60 Benign/Brute Force, 42 Benign/DoS Hulk, one Benign/PortScan). We keep these labels rather than invent a correction.
 
-We use this 15-feature dataset for the remaining tasks: a fresh stratified 70/15/15 split, seed 42, and a new scaler fitted on training only. The notebook contains the split counts and `_3b` arrays.
+We use the 15-feature data for all later tasks, with a fresh stratified 70/15/15 split, seed 42 and a training-fitted scaler. Train/validation/test contain **15,727 / 3,370 / 3,371** samples; PortScan has **199 / 43 / 43**. The `_3b` variables preserve this dataset separately from the port-based experiments.
 
 ## Task 4 - The rare class: loss and imbalance
 
-**[PDF §8] Our prediction and the unweighted baseline: can we still detect the rarest class?**
+**[PDF §8] Prediction and rare-class detection.**
 
-Before training, we expected PortScan to be hardest because only 199 training examples remain. This is confirmed: it has the lowest F1 (**0.6526**) and recall (**0.7209**), but we still detect **31/43** validation flows. The full per-class report and confusion matrix are in the notebook.
+Before the unweighted run, we expected PortScan to be hardest because only 199 training examples remain. Run 8 confirms this: lowest F1 (0.6526) and recall (0.7209), but **31/43** PortScan flows are still detected. We reuse the Task 2C settings with 15 inputs and ordinary CE.
 
-### Task 4B - Class-weighted cross-entropy
+**[PDF §8] Where do the class weights come from?**
 
-**[PDF §8] From which partition do we compute weights, and why?**
+Training labels only, using `N / (4 * class_count)`: Benign 0.3326, Brute Force 3.9357, DoS Hulk 1.4519 and PortScan 19.7575. Using validation/test labels would feed held-out distribution information into the training objective. Run 9 keeps initialization, data and other settings fixed.
 
-Only **training labels**, using `N / (4 * class_count)`: Benign **0.3326**, Brute Force **3.9357**, DoS Hulk **1.4519**, PortScan **19.7575**. Using validation/test labels would let held-out class distributions influence our training objective. We change only loss weighting and keep initialization, data and hyperparameters fixed.
+**[PDF §8] Prediction versus measured accuracy/macro-F1 changes.**
 
-**[PDF §8 - Predict first] Our hypothesis.**
-
-We expected slightly lower accuracy, higher macro-F1 and higher PortScan recall, with possible additional false alarms. We recorded this before the weighted run.
-
-**[PDF §8] Did accuracy and macro-F1 move in the same direction?**
-
-Yes: **both decrease**, by **4.60** and **9.66 percentage points** respectively. Our recall prediction holds, but our macro-F1 prediction does not.
+We predicted slightly lower accuracy, higher macro-F1 and higher PortScan recall, with possible additional false alarms. **Accuracy and macro-F1 both fall**, by 4.60 and 9.66 percentage points. The macro-F1 prediction fails; lower accuracy, higher recall and more false alarms are confirmed.
 
 | Validation metric | Unweighted (run 8) | Weighted (run 9) |
 | --- | --- | --- |
@@ -287,8 +235,6 @@ Yes: **both decrease**, by **4.60** and **9.66 percentage points** respectively.
 | PortScan detected | 31/43 | 41/43 |
 | Ordinary cross-entropy | 0.10506 | 0.20914 |
 
-Weights recover 10 additional PortScan flows, but false PortScan predictions increase from **21 to 122**, overwhelming the recall gain. Reweighting improves detection coverage here, not overall classification quality.
-
 | Class | Unweighted F1 | Weighted F1 |
 | --- | --- | --- |
 | Benign | 0.9772 | 0.9511 |
@@ -296,24 +242,23 @@ Weights recover 10 additional PortScan flows, but false PortScan predictions inc
 | DoS Hulk | 0.9419 | 0.8849 |
 | PortScan | 0.6526 | 0.3981 |
 
-Run 9 stops at epoch **137**, restoring epoch **117**; time **28.40 s**. Its best weighted validation CE is **0.18363**; the table uses ordinary CE for both models. Run 8's current saved time is **30.14 s**. Times include training and per-epoch validation; the port-free test remains untouched.
+The weights recover ten more PortScan flows but increase false PortScan predictions from **21 to 122**. Recall gains are outweighed by precision loss. Run 8 restores epoch 129/149 (30.14 s); run 9 restores 117/137 (28.40 s). Weighted checkpoint CE is 0.18363; the comparison table uses ordinary CE for both models.
 
-**[PDF §8] Which metric should we optimize for an intrusion detector, and why?**
+**[PDF §8] Which metric should we optimize?**
 
-We prioritize **macro-F1**, which treats every class equally and balances precision with recall. Accuracy can hide missed rare attacks; recall alone can reward excessive false alarms. We therefore also inspect rare-attack recall and precision. We retain **run 8** as our port-free reference: its macro-F1 is higher, while run 9 shows the cost of buying more rare-attack coverage.
+We prioritize **macro-F1**: every class contributes equally, and precision matters alongside recall. Accuracy can hide rare attacks; recall alone can reward excessive false alarms. We monitor rare-class recall/precision and retain **run 8** as the simple port-free reference. Full reports/heatmaps are in the notebook; the port-free test is reserved for the later fixed-model comparison.
 
 ## Task 5 - Varying the hyperparameters
 
 ### Task 5A - Depth
 
-**[PDF §9.1] Why our first two candidates? Our hypotheses before training.**
+**[PDF §9.1] Architecture rationale and recorded hypotheses.**
 
-- **64 -> 64:** we retain the first hidden width and add one same-width nonlinear layer. We expect richer feature combinations to improve validation macro-F1, possibly helping PortScan.
-- **64 -> 32 -> 16:** we add more depth with a narrowing bottleneck. We expect it to generalize better than 64 -> 64 by limiting capacity, though compression could discard rare-class information. It has 3,700 parameters, versus 5,444 for 64 -> 64 and 1,284 for the single-layer baseline.
+- **64 -> 64 (run 10): minimal extension.** We keep the baseline's 64-unit representation and add one nonlinear transformation, without narrowing it. We expected the extra stage to combine flow statistics into more useful decision boundaries and improve macro-F1, particularly on PortScan.
+- **64 -> 32 -> 16 (run 11): progressive compression.** Three hidden stages learn a narrower representation with fewer parameters than 64 -> 64 (3,700 versus 5,444). We expected this capacity constraint to improve generalization, with the risk of discarding information needed for rare attacks.
+- **64 -> 64 -> 64 (run 12): constant-width follow-up.** After run 10 improved, we added a third 64-unit stage to test further depth without the bottleneck. We expected a modest additional gain, while recognizing the overfitting risk of 9,604 parameters. Contrasting the two three-layer designs also lets us examine narrowing versus retaining width.
 
-We initially spend **two runs**, then add one follow-up rather than a grid. All three candidates use the **unweighted port-free Task 4 baseline (run 8)** settings: ReLU, ordinary CE, AdamW lr=1e-3, weight_decay=0.005, batch 64, maximum 200 epochs, patience 20, min_delta=5e-5 and seed 42. Split and scaler stay fixed. We restore each run's minimum-validation-loss weights and compare on validation only.
-
-**[PDF §9.1] Does depth help? Our results.**
+All use run 8's unweighted port-free setup: ReLU, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42. Split and scaler stay fixed; each model starts fresh and restores its lowest-validation-loss checkpoint. We chose two initial architectures and one follow-up, not a grid.
 
 | Run | Hidden layers | Accuracy | Macro-F1 | PortScan F1 | Parameters | Train + val s |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -322,55 +267,31 @@ We initially spend **two runs**, then add one follow-up rather than a grid. All 
 | 11 | 64 -> 32 -> 16 | 0.96973 | 0.88019 | 0.6535 | 3,700 | 29.42 |
 | 12 | 64 -> 64 -> 64 | 0.97359 | 0.91461 | 0.7826 | 9,604 | 29.72 |
 
-**64 -> 64 is our best depth candidate.** Macro-F1 improves by 0.06741 over run 8. Both deeper models detect 33/43 PortScan flows (recall 0.7674), but their precision differs sharply: **0.9706** for 64 -> 64 versus **0.5690** for 64 -> 32 -> 16. This means one false PortScan prediction versus 25, explaining much of the F1 difference.
+**[PDF §9.1] Does depth help?**
 
-Our first hypothesis is supported: an extra same-width layer helps. Our bottleneck hypothesis is not: more hidden layers with fewer parameters do not outperform 64 -> 64. The single-layer baseline is weaker on our primary metric, so these results support some extra capacity for this task, not unlimited depth. A competitive single-layer result would instead suggest that little additional representational complexity is needed. We change both depth and parameter count, so we cannot attribute the gain to depth alone.
+Yes, in the first extension: **64 -> 64** improves macro-F1 by 0.06741 over the single-layer baseline. Runs 10/11 both detect 33/43 PortScan flows, but run 10 makes only one false PortScan prediction versus 25 for run 11. Run 12 detects 36/43, but makes 13 false predictions and has lower F1 than run 10.
 
-Run 10 stops at epoch 153 and restores 133; run 11 stops at 114 and restores 94. Times include per-epoch validation and differ partly because stopping epochs differ. These are single-seed results. We used **3 of about 10 Task 5 runs**; no port-free test evaluation was performed. Run 8 remains the fixed simple reference for later comparisons.
+Our minimal-extension hypothesis is supported; the bottleneck and further-depth hypotheses are not. **Run 10 is our selected candidate.** One extra layer helps, but simply adding more depth does not. Had the single-layer model remained competitive, simplicity would have been preferable; here its lower macro-F1 supports a modest increase in complexity. Parameter count also varies, so this is not an isolated test of depth alone.
 
-**Additional candidate - run 12, hypothesis before training.** Following the improvement from 64 -> 64, we test **64 -> 64 -> 64** to see whether another same-width nonlinear layer adds useful feature combinations without compression. We expect a modest further gain, while recognizing the overfitting risk from 9,604 parameters. We reuse the same unweighted Task 4 configuration and validation split. This is one additional run; the first two candidates are not retrained.
+We used **3 of about 10 Task 5 runs**. Timings include per-epoch validation and different stopping epochs, so they are not a pure speed comparison. These are single-seed results; run 8 remains the simple reference and the port-free test is untouched.
 
-**Run 12 result:** 64 -> 64 -> 64 reaches macro-F1 **0.91461**, below run 10's **0.93556**. PortScan recall increases to **36/43 (0.8372)**, but precision falls to **0.7347**, with 13 false PortScan predictions instead of one. F1 is **0.7826**, versus 0.8571 for 64 -> 64. Our prediction of a further improvement is not confirmed: the third same-width layer adds parameters without improving the primary score. We keep **run 10** as the best depth candidate. Run 12 stops at epoch **106**, restores **86**, and takes **29.72 s**. We have used three Task 5 runs; test remains untouched.
+**[PDF §9.2 - 5B] Batch size.** Pending: compare three sizes, recording predictions for generalization/time before each new run.
 
-**[PDF §9.2 - 5B] Compare three batch sizes; predict generalization and wall-clock time, then measure both.**
+**[PDF §9.3 - 5C] Optimizer versus LR.** Pending: compare SGD, momentum SGD and AdamW with LR variation, within the remaining Task 5 budget.
 
-**Pending.** No batch-size comparison or training-time measurement exists.
-
-**[PDF §9.3 - 5C] Compare SGD, SGD+momentum and AdamW while varying LR; does optimizer or LR dominate?**
-
-**Pending.** No controlled optimizer/LR comparison exists. Task 5A has used three of about 10 Task 5 runs; the remaining budget covers the batch-size and optimizer/LR comparisons.
-
-**[PDF §9.4 - 5D] Compare the validation-selected best model and the Task 4 baseline on TEST; was complexity worth the runs?**
-
-**Pending.** We have not selected these models or run this comparison yet. We will base our verdict on our logbook and the fixed-model test evaluations.
+**[PDF §9.4 - 5D] Final verdict.** Pending after validation comparisons: test the selected model against run 8 and judge the gain against its run cost.
 
 ## Task 6 - Optimizations
 
-**[PDF §10] Predict/train the port-free 256 -> 128 -> 64 -> 32 -> 16 network (ReLU, CE, AdamW lr=5e-4, batch 128, about 150-200 epochs, no regularization/early stopping) and locate overfitting in the curves.**
+**[PDF §10] Large model and overfitting.** Pending: 256 -> 128 -> 64 -> 32 -> 16, ReLU, CE, AdamW lr=5e-4, batch 128, about 150-200 epochs, explicit weight_decay=0 and no early stopping. Record the curve prediction first.
 
-**Pending.** We have not run this experiment yet. We will explicitly use weight_decay=0 for the initial unregularized run because AdamW's default is nonzero.
+**[PDF §10] Optimization and final reflection.** Pending: try a smaller model/early stopping first, then weight decay, dropout and batch normalization one change at a time. Compare with run 8 and use the completed logbook to judge performance per unit of effort.
 
-**[PDF §10] Try a smaller model or early stopping first, then weight decay, dropout and batch normalization one change at a time; what helps most? Compare the final large network with the Task 4 baseline on TEST.**
+## Logbook and submission
 
-**Pending.** We have about six runs for this task. We will evaluate each modification on validation before adding another. We have no optimization results or final comparison yet.
+We have **13 recorded training entries (1-12 and 7bis)**; Task 5 has used three. Runs 1 and 6 remain historical entries. Preprocessing/inference consume no training runs. The PDF asks for about 25 runs overall and about 10 within Task 5.
 
-**[PDF §10 - Final reflection] Which decisions bought the most performance per unit of effort?**
-
-**Pending.** We have only established our initial working baseline, so we cannot compare the benefits of later design choices yet. We will compare our measured validation improvements, training times and run costs once the experiments are complete.
-
-## Logbook, reproducibility and submission
-
-**[PDF §4] One row per training run, task tag, one change, hypothesis BEFORE running, validation result and conclusion; about 25 runs in total.**
-
-Our logbook contains thirteen training entries (1-12 and 7bis), including three depth candidates for Task 5A. Hypotheses and validation results are recorded with the runs. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
-
-**[PDF §2/§11] Required deliverables and reasoning.**
-
-- [ ] Report `groupID_lab1.pdf`, maximum 10 pages, with decisions, tables, curves and explanations tied to our results.
-- [ ] Complete logbook (separate or report appendix; excluded from page limit), including advance hypotheses for future runs.
-- [ ] Fully executed, rerunnable `.ipynb`, with outputs and appropriate seeds.
-- [ ] HTML export of the notebook.
-- [ ] Our final package `groupID_lab1.zip`, containing notebook/code, report, HTML and logbook.
-
-We use these notes and our logbook as working material for the final report. We have organized the notebook by task and marked our remaining work; the existing code and saved outputs are unchanged.
-
+- [ ] Report `groupID_lab1.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
+- [ ] Experiment logbook, separate or appendix (outside the page limit).
+- [ ] Executed, rerunnable notebook/code and HTML export.
+- [ ] Final package `groupID_lab1.zip`.
