@@ -282,9 +282,21 @@ We trained for **149 epochs**, with early stopping, and restored **epoch 129** (
 
 The validation confusion matrix is in the notebook. We keep this model as the unweighted port-free reference; the port-free test has not been evaluated.
 
-**[PDF §8] Class-weighted cross-entropy and the accuracy/macro-F1 trade-off.**
+### Task 4B - Class-weighted cross-entropy
 
-Pending. Class weights will be computed from training labels only; the weighted-loss comparison is separate from this initial baseline.
+**[PDF §8] From which partition do we compute class weights, and why?**
+
+We compute balanced weights from **training labels only**, using `N / (4 * class_count)`. The weights change our training objective; using validation/test labels would leak held-out class-distribution information into training.
+
+**[PDF §8 - Predict first] What do we expect for accuracy and macro-F1?**
+
+Our hypothesis is **slightly lower accuracy, higher macro-F1 and higher PortScan recall**. Giving rare attacks more weight should reduce missed PortScan flows, possibly increasing false alarms. PortScan precision is already 0.5962, so we will check whether recall gains compensate for any precision loss. We record this prediction before the weighted run.
+
+**[PDF §8] Did accuracy and macro-F1 move together? Which metric should we optimize?**
+
+Results pending. Our unweighted reference has accuracy **0.96172**, macro-F1 **0.86815** and PortScan recall **0.7209**. We keep all settings and initial weights fixed, changing only to weighted cross-entropy, then compare validation results. Weighted loss is used for the new run's checkpoint selection; the summary table reports ordinary CE for both models so its loss values remain comparable.
+
+We prioritize **macro-F1**, since each class contributes equally rather than allowing Benign to dominate. We also monitor rare-class recall and false alarms: a high overall score is insufficient if rare attacks are missed, and recall gains alone do not justify unlimited false positives.
 
 ## Task 5 - Varying the hyperparameters
 
