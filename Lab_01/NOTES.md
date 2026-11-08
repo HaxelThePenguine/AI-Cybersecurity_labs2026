@@ -232,42 +232,30 @@ The overall accuracy still exceeds 92% because Brute Force accounts for only 214
 
 ### Task 3B - Port-free preprocessing
 
-**[PDF §7, pp.6-7] Count the classes after cleaning and compare with before. Which class shrinks, and by how much?**
+**[PDF §7] 1. Class counts before and after cleaning without the port.**
 
-We reload the original CSV and remove Destination Port before cleaning and deduplication. We keep the same cleaning policy: missing values, exact duplicate rows, non-finite values and negative values in the selected non-negative features still present. Clean samples decrease from **29,384 to 22,468**, with **15 input features** remaining.
+| Class | With port | Without port |
+| --- | --- | --- |
+| Benign | 19,240 | 16,888 |
+| Brute Force | 1,427 | 1,427 |
+| DoS Hulk | 3,868 | 3,868 |
+| PortScan | 4,849 | 285 |
 
-| Class | With port | Without port | Removed | Removed % | New share % |
-| --- | --- | --- | --- | --- | --- |
-| Benign | 19,240 | 16,888 | 2,352 | 12.22 | 75.16 |
-| Brute Force | 1,427 | 1,427 | 0 | 0.00 | 6.35 |
-| DoS Hulk | 3,868 | 3,868 | 0 | 0.00 | 17.22 |
-| PortScan | 4,849 | 285 | 4,564 | 94.12 | 1.27 |
+PortScan loses **4,564 samples (94.12%)**. Total samples fall from 29,384 to 22,468. Benign also decreases by 12.22%; the other two classes remain unchanged.
 
-**PortScan collapses from 4,849 to 285 samples: 4,564 fewer, a reduction of 94.12%.** DoS Hulk and Brute Force remain unchanged. Benign also shrinks by 2,352 samples (12.22%), so its change is smaller proportionally but not negligible.
+**[PDF §7] 2. Why does PortScan collapse, and what did the model know?**
 
-**[PDF §7] Why does PortScan collapse? What did the earlier model know about it?**
+Many PortScan rows differed only in destination port; removing it makes them duplicates. Our model could exploit port-specific structure, so its earlier scores did not establish recognition of diverse, port-independent scan behavior.
 
-Many PortScan flows differed only in Destination Port. Once we remove it, their remaining feature vectors and labels become identical, so deduplication merges them. Much of the original sample diversity therefore reflected different scanned ports rather than distinct behavior in the retained features. Our earlier model could exploit that port-specific structure; good PortScan scores did not by themselves establish robust recognition of diverse, port-independent scan behavior. This does not mean that every remaining feature is useless.
+**[PDF §7] 3. Rarest class and balance.**
 
-**[PDF §7] Which class is now rarest, and how balanced is the dataset?**
+PortScan is now rarest: **285 samples (1.27%)**. Benign is 75.16%, DoS Hulk 17.22%, and Brute Force 6.35%. The largest-to-smallest class ratio rises from about 13.5:1 to **59.3:1**.
 
-PortScan is now the rarest class: **285 samples (1.27%)**. Benign accounts for **75.16%**, DoS Hulk **17.22%**, and Brute Force **6.35%**. The largest-to-smallest class ratio is about **59.3:1**, compared with about 13.5:1 before removal. The imbalance is therefore substantially stronger, and the identity of the rarest class changes from Brute Force to PortScan.
+**[PDF §7] 4. Do we still deduplicate?**
 
-**[PDF §7] Do we still deduplicate? Why?**
+Yes. We remove duplicates to avoid identical labelled vectors appearing across training and held-out partitions. Retaining repetitions would inflate counts without adding information; we accept fewer PortScan examples and greater uncertainty in its metrics.
 
-Yes. We keep deduplication because repeated identical labelled vectors could otherwise appear in both training and held-out partitions after a random split, making evaluation depend on repeated observations. Keeping them just to restore PortScan's sample count would not add new feature information. The trade-off is a much smaller, less representative sample of unique PortScan patterns and greater uncertainty in its metrics. We treat the new counts as counts of unique labelled observations, not real traffic prevalence, and assess per-class metrics alongside macro-F1.
-
-**Our new split and scaling.** We create a fresh stratified 70/15/15 split with random_state=42, preserving class proportions as closely as integer counts allow. We fit a new label encoder and StandardScaler on the new training partition only, then reuse them unchanged on validation/test.
-
-| Class | Train | Validation | Test |
-| --- | --- | --- | --- |
-| Benign | 11,821 | 2,533 | 2,534 |
-| Brute Force | 999 | 214 | 214 |
-| DoS Hulk | 2,708 | 580 | 580 |
-| PortScan | 199 | 43 | 43 |
-| Total | 15,727 | 3,370 | 3,371 |
-
-The notebook keeps the port-free data in the `_3b` variables and the scaled inputs in `X_train_std_3b`, `X_val_std_3b`, `X_test_std_3b`. We use this dataset for the rest of the lab; the earlier port-based baseline and counterfactual remain separate.
+We use this 15-feature dataset for the remaining tasks: a fresh stratified 70/15/15 split, seed 42, and a new scaler fitted on training only. The notebook contains the split counts and `_3b` arrays.
 
 ## Task 4 - The rare class: loss and imbalance
 
