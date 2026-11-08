@@ -2,7 +2,7 @@
 
 **Labels:** `[PDF §...]` identifies questions/requests from the assignment (wording may be shortened). `[Our note]` identifies additional discussion. Pending answers are explicitly marked.
 
-**Current progress:** We have completed Tasks 2A-2C and selected run 7 as our baseline. The logbook records runs 1-7 and the Linear comparison as 7bis. Task 3 counterfactual and port-free preprocessing are complete; Tasks 4-6 remain pending.
+**Current progress:** We have completed Tasks 2A-2C and selected run 7 as our baseline. The logbook records runs 1-8 and the Linear comparison as 7bis. Task 3 counterfactual and port-free preprocessing are complete; The unweighted Task 4 baseline is complete; the weighted-loss comparison and Tasks 5-6 remain pending.
 
 ## Task 1 - Preprocessing
 
@@ -259,9 +259,32 @@ We use this 15-feature dataset for the remaining tasks: a fresh stratified 70/15
 
 ## Task 4 - The rare class: loss and imbalance
 
-**[PDF §8] Predict the hardest class, retrain the port-free baseline and report per-class detection. Then compare weighted cross-entropy; explain weight partition, accuracy versus macro-F1 and metric choice.**
+**[PDF §8 - Predict first] Which class do we expect to suffer most?**
 
-**Pending.** No port-free training or weighted-loss comparison exists. We will compute class weights from training labels only, so validation/test do not influence the training objective. We still need to record our expected accuracy/macro-F1 trade-off, run the comparison and interpret the per-class results. We have not measured a direction of change yet.
+We expect **PortScan** to be the hardest class because only **199 training samples** remain after removing Destination Port and deduplicating. There are few examples from which to learn its behavior, and its small contribution to ordinary cross-entropy may be outweighed by the larger classes. We expect low PortScan F1/recall and will check this prediction against the validation report. We record this hypothesis before training.
+
+**[PDF §8] Retrain the baseline and report per-class results. Can we still detect the rarest class?**
+
+We reuse the Task 2C configuration: 15 -> 64 -> 4 with ReLU, unweighted cross-entropy, AdamW lr=1e-3 and weight_decay=0.005, batch 64, maximum 200 epochs, patience 20, min_delta=5e-5, seed 42 and CPU. We initialize new weights, use the Task 3B training-fitted scaler and restore the minimum-validation-loss checkpoint. Evaluation uses validation only.
+
+We trained for **149 epochs**, with early stopping, and restored **epoch 129** (validation CE **0.10506**). Training plus per-epoch validation took **30.25 s**. The notebook contains the loss curves and classification report.
+
+| Class | Precision | Recall | F1 | Validation samples |
+| --- | --- | --- | --- | --- |
+| Benign | 0.9741 | 0.9803 | 0.9772 | 2533 |
+| Brute Force | 0.8696 | 0.9346 | 0.9009 | 214 |
+| DoS Hulk | 0.9777 | 0.9086 | 0.9419 | 580 |
+| PortScan | 0.5962 | 0.7209 | 0.6526 | 43 |
+
+**Accuracy: 0.9617; macro-F1: 0.8682. Our prediction is confirmed:** PortScan has the lowest per-class F1 and recall. Its few training examples and the changed feature representation are consistent with this difficulty; this run does not isolate their individual effects.
+
+**Can we still detect the rarest class? Yes:** we detect **31/43 PortScan flows**, recall **72.09%**. The 12 misses are nine Benign and three DoS Hulk predictions. There are also 21 false PortScan predictions (11 Benign and 10 Brute Force), so precision is only **59.62%** and F1 **0.6526**. The class remains detectable, but less reliably than the others. With only 43 validation examples, one changed prediction moves recall by about 2.33 percentage points.
+
+The validation confusion matrix is in the notebook. We keep this model as the unweighted port-free reference; the port-free test has not been evaluated.
+
+**[PDF §8] Class-weighted cross-entropy and the accuracy/macro-F1 trade-off.**
+
+Pending. Class weights will be computed from training labels only; the weighted-loss comparison is separate from this initial baseline.
 
 ## Task 5 - Varying the hyperparameters
 
@@ -299,7 +322,7 @@ We use this 15-feature dataset for the remaining tasks: a fresh stratified 70/15
 
 **[PDF §4] One row per training run, task tag, one change, hypothesis BEFORE running, validation result and conclusion; about 25 runs in total.**
 
-Our logbook contains eight training entries, labelled 1-7 and 7bis: two Task 2A baselines, S1-S3, the selected ReLU configurations and the controlled Linear comparison. We recorded our S1-S3 hypotheses before training. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
+Our logbook contains nine training entries, labelled 1-8 and 7bis: two Task 2A baselines, S1-S3, the selected ReLU configurations, the controlled Linear comparison and the unweighted port-free baseline. We recorded our S1-S3 hypotheses before training. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
 
 **[PDF §2/§11] Required deliverables and reasoning.**
 
