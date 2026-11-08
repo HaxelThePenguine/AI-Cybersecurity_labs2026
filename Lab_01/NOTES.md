@@ -306,26 +306,31 @@ We prioritize **macro-F1**, which treats every class equally and balances precis
 
 ### Task 5A - Depth
 
-**[PDF §9.1] Why these two candidates? Our hypotheses before training.**
+**[PDF §9.1] Why our first two candidates? Our hypotheses before training.**
 
 - **64 -> 64:** we retain the first hidden width and add one same-width nonlinear layer. We expect richer feature combinations to improve validation macro-F1, possibly helping PortScan.
 - **64 -> 32 -> 16:** we add more depth with a narrowing bottleneck. We expect it to generalize better than 64 -> 64 by limiting capacity, though compression could discard rare-class information. It has 3,700 parameters, versus 5,444 for 64 -> 64 and 1,284 for the single-layer baseline.
 
-We spend exactly **two runs** rather than a grid. Both use the **unweighted port-free Task 4 baseline (run 8)** settings: ReLU, ordinary CE, AdamW lr=1e-3, weight_decay=0.005, batch 64, maximum 200 epochs, patience 20, min_delta=5e-5 and seed 42. Split and scaler stay fixed. We restore each run's minimum-validation-loss weights and compare on validation only.
+We initially spend **two runs**, then add one follow-up rather than a grid. All three candidates use the **unweighted port-free Task 4 baseline (run 8)** settings: ReLU, ordinary CE, AdamW lr=1e-3, weight_decay=0.005, batch 64, maximum 200 epochs, patience 20, min_delta=5e-5 and seed 42. Split and scaler stay fixed. We restore each run's minimum-validation-loss weights and compare on validation only.
 
 **[PDF §9.1] Does depth help? Our results.**
 
 | Run | Hidden layers | Accuracy | Macro-F1 | PortScan F1 | Parameters | Train + val s |
 | --- | --- | --- | --- | --- | --- | --- |
 | 8 | 64 (reference) | 0.96172 | 0.86815 | 0.6526 | 1,284 | 30.14 |
-| 10 | 64 -> 64 | 0.97774 | 0.93556 | 0.8571 | 5,444 | 33.30 |
-| 11 | 64 -> 32 -> 16 | 0.96973 | 0.88019 | 0.6535 | 3,700 | 27.43 |
+| 10 | 64 -> 64 | 0.97774 | 0.93556 | 0.8571 | 5,444 | 35.63 |
+| 11 | 64 -> 32 -> 16 | 0.96973 | 0.88019 | 0.6535 | 3,700 | 29.42 |
+| 12 | 64 -> 64 -> 64 | 0.97359 | 0.91461 | 0.7826 | 9,604 | 29.72 |
 
 **64 -> 64 is our best depth candidate.** Macro-F1 improves by 0.06741 over run 8. Both deeper models detect 33/43 PortScan flows (recall 0.7674), but their precision differs sharply: **0.9706** for 64 -> 64 versus **0.5690** for 64 -> 32 -> 16. This means one false PortScan prediction versus 25, explaining much of the F1 difference.
 
 Our first hypothesis is supported: an extra same-width layer helps. Our bottleneck hypothesis is not: more hidden layers with fewer parameters do not outperform 64 -> 64. The single-layer baseline is weaker on our primary metric, so these results support some extra capacity for this task, not unlimited depth. A competitive single-layer result would instead suggest that little additional representational complexity is needed. We change both depth and parameter count, so we cannot attribute the gain to depth alone.
 
-Run 10 stops at epoch 153 and restores 133; run 11 stops at 114 and restores 94. Times include per-epoch validation and differ partly because stopping epochs differ. These are single-seed results. We used **2 of about 10 Task 5 runs**; no port-free test evaluation was performed. Run 8 remains the fixed simple reference for later comparisons.
+Run 10 stops at epoch 153 and restores 133; run 11 stops at 114 and restores 94. Times include per-epoch validation and differ partly because stopping epochs differ. These are single-seed results. We used **3 of about 10 Task 5 runs**; no port-free test evaluation was performed. Run 8 remains the fixed simple reference for later comparisons.
+
+**Additional candidate - run 12, hypothesis before training.** Following the improvement from 64 -> 64, we test **64 -> 64 -> 64** to see whether another same-width nonlinear layer adds useful feature combinations without compression. We expect a modest further gain, while recognizing the overfitting risk from 9,604 parameters. We reuse the same unweighted Task 4 configuration and validation split. This is one additional run; the first two candidates are not retrained.
+
+**Run 12 result:** 64 -> 64 -> 64 reaches macro-F1 **0.91461**, below run 10's **0.93556**. PortScan recall increases to **36/43 (0.8372)**, but precision falls to **0.7347**, with 13 false PortScan predictions instead of one. F1 is **0.7826**, versus 0.8571 for 64 -> 64. Our prediction of a further improvement is not confirmed: the third same-width layer adds parameters without improving the primary score. We keep **run 10** as the best depth candidate. Run 12 stops at epoch **106**, restores **86**, and takes **29.72 s**. We have used three Task 5 runs; test remains untouched.
 
 **[PDF §9.2 - 5B] Compare three batch sizes; predict generalization and wall-clock time, then measure both.**
 
@@ -333,7 +338,7 @@ Run 10 stops at epoch 153 and restores 133; run 11 stops at 114 and restores 94.
 
 **[PDF §9.3 - 5C] Compare SGD, SGD+momentum and AdamW while varying LR; does optimizer or LR dominate?**
 
-**Pending.** No controlled optimizer/LR comparison exists. Task 5A has used two of about 10 Task 5 runs; the remaining budget covers the batch-size and optimizer/LR comparisons.
+**Pending.** No controlled optimizer/LR comparison exists. Task 5A has used three of about 10 Task 5 runs; the remaining budget covers the batch-size and optimizer/LR comparisons.
 
 **[PDF §9.4 - 5D] Compare the validation-selected best model and the Task 4 baseline on TEST; was complexity worth the runs?**
 
@@ -357,7 +362,7 @@ Run 10 stops at epoch 153 and restores 133; run 11 stops at 114 and restores 94.
 
 **[PDF §4] One row per training run, task tag, one change, hypothesis BEFORE running, validation result and conclusion; about 25 runs in total.**
 
-Our logbook contains twelve training entries (1-11 and 7bis), including exactly two depth candidates for Task 5A. Hypotheses and validation results are recorded with the runs. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
+Our logbook contains thirteen training entries (1-12 and 7bis), including three depth candidates for Task 5A. Hypotheses and validation results are recorded with the runs. Preprocessing and inference do not consume training runs; the whole-lab budget is approximately 25 runs.
 
 **[PDF §2/§11] Required deliverables and reasoning.**
 

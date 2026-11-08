@@ -16,12 +16,13 @@ FFNN 16 -> 64 -> 4, ReLU; cross-entropy; AdamW, default lr=5e-4 (overrides below
 | 7bis | 2C | Identity instead of ReLU; other settings as run 7 | We expect removing ReLU to hurt per-class performance | Accuracy 0.91402; macro-F1 0.87240; best loss 0.28591 (epoch 55) | 18.05 | Macro-F1 below ReLU; Brute Force F1 0.7737. Early stop at 75; restored epoch 55. We keep run 7. |
 | 8 | 4 | Port-free 15 -> 64 -> 4; unweighted CE; Task 2C hyperparameters | We expect PortScan to be hardest: only 199 training samples remain | Accuracy 0.96172; macro-F1 0.86815; best loss 0.10506 (epoch 129) | 30.14 | Prediction confirmed: PortScan F1 0.6526, recall 0.7209 (31/43 detected). Early stop at 149. |
 | 9 | 4B | Balanced training-only class weights; other settings as run 8 | We expect accuracy to decrease, macro-F1 and PortScan recall to increase | Accuracy 0.91573; macro-F1 0.77160; best weighted CE 0.18363 (epoch 117) | 28.40 | Accuracy and macro-F1 both fall; PortScan recall rises to 0.9535 but precision falls to 0.2515. We keep run 8. |
-| 10 | 5A | Hidden layers 64 -> 64; other settings as unweighted run 8 | An extra same-width nonlinear layer may improve feature combinations and PortScan detection | Accuracy 0.97774; macro-F1 0.93556; best CE 0.07418 (epoch 133) | 33.30 | Best depth candidate; PortScan F1 0.8571 with only one false PortScan prediction. Early stop at 153. |
-| 11 | 5A | Hidden layers 64 -> 32 -> 16; other settings as unweighted run 8 | A narrowing bottleneck may generalize better than 64 -> 64 with fewer parameters | Accuracy 0.96973; macro-F1 0.88019; best CE 0.08735 (epoch 94) | 27.43 | Below 64 -> 64; bottleneck hypothesis not confirmed. PortScan F1 0.6535. Early stop at 114. |
+| 10 | 5A | Hidden layers 64 -> 64; other settings as unweighted run 8 | An extra same-width nonlinear layer may improve feature combinations and PortScan detection | Accuracy 0.97774; macro-F1 0.93556; best CE 0.07418 (epoch 133) | 35.63 | Best depth candidate; PortScan F1 0.8571 with only one false PortScan prediction. Early stop at 153. |
+| 11 | 5A | Hidden layers 64 -> 32 -> 16; other settings as unweighted run 8 | A narrowing bottleneck may generalize better than 64 -> 64 with fewer parameters | Accuracy 0.96973; macro-F1 0.88019; best CE 0.08735 (epoch 94) | 29.42 | Below 64 -> 64; bottleneck hypothesis not confirmed. PortScan F1 0.6535. Early stop at 114. |
+| 12 | 5A | Hidden layers 64 -> 64 -> 64; other settings as unweighted run 8 | A third same-width nonlinear layer may improve on 64 -> 64 without a bottleneck | Accuracy 0.97359; macro-F1 0.91461; best CE 0.07588 (epoch 86) | 29.72 | Below run 10; further-gain hypothesis not confirmed. PortScan recall 36/43, F1 0.7826. Early stop at 106. |
 
-All runs use CPU (one thread), seed 42 and patience 20. Run 1 uses at most 100 epochs and min_delta=1e-4; runs 2-5 use at most 150 epochs and min_delta=5e-5; runs 6-11 and 7bis use at most 200 epochs and min_delta=5e-5. S1-S3 each change one setting relative to run 2. We restore the lowest-validation-loss weights. Times include training and per-epoch validation. Runs 1-5, 7bis and 8-11 use validation only; runs 6 and 7 are also evaluated on test. Our port-based reference is run 7; run 8 is our unweighted port-free reference (lr=1e-3, weight_decay=0.005).
+All runs use CPU (one thread), seed 42 and patience 20. Run 1 uses at most 100 epochs and min_delta=1e-4; runs 2-5 use at most 150 epochs and min_delta=5e-5; runs 6-12 and 7bis use at most 200 epochs and min_delta=5e-5. S1-S3 each change one setting relative to run 2. We restore the lowest-validation-loss weights. Times include training and per-epoch validation. Runs 1-5, 7bis and 8-12 use validation only; runs 6 and 7 are also evaluated on test. Our port-based reference is run 7; run 8 is our unweighted port-free reference (lr=1e-3, weight_decay=0.005).
 
-**Budget:** 12 logged training entries (1-11 and 7bis); approximately 25 runs for the whole lab.
+**Budget:** 13 logged training entries (1-12 and 7bis); approximately 25 runs for the whole lab.
 
 **Run 6 - fixed-model test:** accuracy 0.96665; macro-F1 0.95369; loss 0.08992. Model selection uses validation.
 
@@ -29,4 +30,4 @@ All runs use CPU (one thread), seed 42 and patience 20. Run 1 uses at most 100 e
 
 Run 9 uses weighted CE for checkpoint selection; its ordinary validation CE is 0.20914. Run 8 remains our selected port-free baseline.
 
-**Task 5A:** 2/approximately 10 Task 5 runs used. Run 10 is the best depth candidate by validation macro-F1; run 8 remains the simple reference.
+**Task 5A:** 3/approximately 10 Task 5 runs used. Run 10 is the best depth candidate by validation macro-F1; run 8 remains the simple reference.
