@@ -2,7 +2,7 @@
 
 **Labels:** `[PDF §...]` identifies questions/requests from the assignment (wording may be shortened). `[Our note]` identifies additional discussion. Pending answers are explicitly marked.
 
-**Current progress:** We have completed Tasks 2A-2C and selected run 7 as our baseline. The logbook records runs 1-7 and the Linear comparison as 7bis. Tasks 3-6 remain pending.
+**Current progress:** We have completed Tasks 2A-2C and selected run 7 as our baseline. The logbook records runs 1-7 and the Linear comparison as 7bis. Task 3 counterfactual inference is prepared; port removal and Tasks 4-6 remain pending.
 
 ## Task 1 - Preprocessing
 
@@ -199,9 +199,21 @@ No. We choose the activation and hyperparameters using validation macro-F1, with
 
 ## Task 3 - When a feature biases the model
 
-**[PDF §7] Discuss the port-80 artefact; predict Brute Force recall after changing only its TEST destination port 80 -> 8080, then evaluate the unchanged Task 2C baseline.**
+**[PDF §7] Is Brute Force always on port 80 a general property? What might our model learn?**
 
-**Pending.** The assignment states the port association; it is not evidence that our model has learned it. We still need to verify the association and record our prediction. We will use the fitted baseline scaler for the counterfactual inputs and evaluate the fixed model without retraining. No counterfactual result is available.
+We think our model may indeed have learned a port-based shortcut: all Brute Force flows in our dataset use Destination Port 80. We verified 1,507/1,507 in the raw data, 1,427/1,427 after cleaning and 214/214 in our test split. This association is an artefact of this dataset, not a general property of brute-force attacks, which can target services on other ports. The association makes port 80 a possible clue for our model; it does not establish that the model uses only that feature.
+
+**[PDF §7 - Predict first] What do we expect after changing Brute Force test ports from 80 to 8080?**
+
+Before inference, we expect Brute Force recall to decrease: if our baseline relies on the port-80 association, changing that feature could make it miss otherwise identical Brute Force flows. The size of the drop remains to be measured.
+
+**[PDF §7] Counterfactual test without retraining.**
+
+We reuse our trained Task 2C baseline (run 7) and its fitted StandardScaler. We copy the original raw test features and change only Destination Port for the 214 Brute Force samples, from 80 to 8080. We keep all labels, other feature values, non-Brute-Force samples, training and validation data unchanged. We transform both test versions with the existing scaler; we do not fit preprocessing again or retrain the network.
+
+The Task 3 cells print both classification reports, confusion-matrix heatmaps, aggregate metrics, Brute Force recall before/after and the number of changed predictions. They also check that the model weights, original test inputs and non-Brute-Force predictions remain unchanged.
+
+**Results pending inference.** We have verified the port association and implemented the comparison, but have not yet evaluated the counterfactual in the trained-model session. A recall decrease would support sensitivity to this port change; an unchanged recall would not support our predicted drop and would require a different interpretation. This inference-only comparison consumes no training runs.
 
 **[PDF §7, pp.6-7] Remove Destination Port from the original data, redo cleaning/split/scaling, compare class counts, identify the collapsed/rarest class and defend deduplication.**
 
