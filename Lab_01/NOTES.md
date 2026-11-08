@@ -2,7 +2,7 @@
 
 **Labels:** `[PDF §...]` identifies questions/requests from the assignment (wording may be shortened). `[Our note]` identifies additional discussion. Pending answers are explicitly marked.
 
-**Current progress:** We have completed Tasks 2A-2C and selected run 7 as our baseline. The logbook records runs 1-7 and the Linear comparison as 7bis. Task 3 counterfactual inference is prepared; port removal and Tasks 4-6 remain pending.
+**Current progress:** We have completed Tasks 2A-2C and selected run 7 as our baseline. The logbook records runs 1-7 and the Linear comparison as 7bis. Task 3 counterfactual and port-free preprocessing are complete; Tasks 4-6 remain pending.
 
 ## Task 1 - Preprocessing
 
@@ -205,7 +205,7 @@ We think our model may indeed have learned a port-based shortcut: all Brute Forc
 
 **[PDF §7 - Predict first] What do we expect after changing Brute Force test ports from 80 to 8080?**
 
-Before inference, we expect Brute Force recall to decrease: if our baseline relies on the port-80 association, changing that feature could make it miss otherwise identical Brute Force flows. The size of the drop remains to be measured.
+Before inference, we expect Brute Force recall to decrease: if our baseline relies on the port-80 association, changing that feature could make it miss otherwise identical Brute Force flows. We did not predict its exact size.
 
 **[PDF §7] Counterfactual test without retraining.**
 
@@ -213,11 +213,61 @@ We reuse our trained Task 2C baseline (run 7) and its fitted StandardScaler. We 
 
 The Task 3 cells print both classification reports, confusion-matrix heatmaps, aggregate metrics, Brute Force recall before/after and the number of changed predictions. They also check that the model weights, original test inputs and non-Brute-Force predictions remain unchanged.
 
-**Results pending inference.** We have verified the port association and implemented the comparison, but have not yet evaluated the counterfactual in the trained-model session. A recall decrease would support sensitivity to this port change; an unchanged recall would not support our predicted drop and would require a different interpretation. This inference-only comparison consumes no training runs.
+**[PDF §7] Did our prediction hold? What does this reveal about our model?**
 
-**[PDF §7, pp.6-7] Remove Destination Port from the original data, redo cleaning/split/scaling, compare class counts, identify the collapsed/rarest class and defend deduplication.**
+Yes, our prediction was confirmed. Changing only Destination Port from 80 to 8080 for the 214 Brute Force test flows reduces their recall from **0.9626 to 0.0374**, a drop of **92.52 percentage points**. We correctly detect **206/214** before the change, but only **8/214** afterwards. All **198 changed predictions** move from Brute Force to Benign; the eight flows originally predicted as PortScan remain PortScan. Predictions for every non-Brute-Force sample remain unchanged.
 
-**Pending measurement and decision.** No port-free pipeline/counts exist in the notebook. Removing a distinguishing feature can make previously distinct rows identical. We still need to measure the class-specific change and justify our deduplication decision. We will use port-free data for all subsequent tasks.
+| Metric | Original test | Brute Force port 8080 |
+| --- | --- | --- |
+| Brute Force recall | 0.9626 | 0.0374 |
+| Brute Force precision | 0.9156 | 0.2963 |
+| Brute Force F1 | 0.9385 | 0.0664 |
+| Overall accuracy | 0.96779 | 0.92287 |
+| Macro-F1 | 0.95516 | 0.72906 |
+| Cross-entropy | 0.08612 | 0.40250 |
+
+This makes us think that our model had learned a strong shortcut linking Brute Force to port 80. Its Brute Force detection almost collapses when that single feature changes, even though the remaining flow characteristics and model weights are identical. In this experiment, detection depends heavily on the dataset's port association rather than robust, port-independent Brute Force behavior. The model may still use other features, but they do not preserve detection after this change.
+
+The overall accuracy still exceeds 92% because Brute Force accounts for only 214/4,408 test samples. Macro-F1 and per-class recall expose the failure that accuracy alone would hide. We performed inference only with the unchanged Task 2C baseline and fitted scaler; this comparison adds no training run.
+
+### Task 3B - Port-free preprocessing
+
+**[PDF §7, pp.6-7] Count the classes after cleaning and compare with before. Which class shrinks, and by how much?**
+
+We reload the original CSV and remove Destination Port before cleaning and deduplication. We keep the same cleaning policy: missing values, exact duplicate rows, non-finite values and negative values in the selected non-negative features still present. Clean samples decrease from **29,384 to 22,468**, with **15 input features** remaining.
+
+| Class | With port | Without port | Removed | Removed % | New share % |
+| --- | --- | --- | --- | --- | --- |
+| Benign | 19,240 | 16,888 | 2,352 | 12.22 | 75.16 |
+| Brute Force | 1,427 | 1,427 | 0 | 0.00 | 6.35 |
+| DoS Hulk | 3,868 | 3,868 | 0 | 0.00 | 17.22 |
+| PortScan | 4,849 | 285 | 4,564 | 94.12 | 1.27 |
+
+**PortScan collapses from 4,849 to 285 samples: 4,564 fewer, a reduction of 94.12%.** DoS Hulk and Brute Force remain unchanged. Benign also shrinks by 2,352 samples (12.22%), so its change is smaller proportionally but not negligible.
+
+**[PDF §7] Why does PortScan collapse? What did the earlier model know about it?**
+
+Many PortScan flows differed only in Destination Port. Once we remove it, their remaining feature vectors and labels become identical, so deduplication merges them. Much of the original sample diversity therefore reflected different scanned ports rather than distinct behavior in the retained features. Our earlier model could exploit that port-specific structure; good PortScan scores did not by themselves establish robust recognition of diverse, port-independent scan behavior. This does not mean that every remaining feature is useless.
+
+**[PDF §7] Which class is now rarest, and how balanced is the dataset?**
+
+PortScan is now the rarest class: **285 samples (1.27%)**. Benign accounts for **75.16%**, DoS Hulk **17.22%**, and Brute Force **6.35%**. The largest-to-smallest class ratio is about **59.3:1**, compared with about 13.5:1 before removal. The imbalance is therefore substantially stronger, and the identity of the rarest class changes from Brute Force to PortScan.
+
+**[PDF §7] Do we still deduplicate? Why?**
+
+Yes. We keep deduplication because repeated identical labelled vectors could otherwise appear in both training and held-out partitions after a random split, making evaluation depend on repeated observations. Keeping them just to restore PortScan's sample count would not add new feature information. The trade-off is a much smaller, less representative sample of unique PortScan patterns and greater uncertainty in its metrics. We treat the new counts as counts of unique labelled observations, not real traffic prevalence, and assess per-class metrics alongside macro-F1.
+
+**Our new split and scaling.** We create a fresh stratified 70/15/15 split with random_state=42, preserving class proportions as closely as integer counts allow. We fit a new label encoder and StandardScaler on the new training partition only, then reuse them unchanged on validation/test.
+
+| Class | Train | Validation | Test |
+| --- | --- | --- | --- |
+| Benign | 11,821 | 2,533 | 2,534 |
+| Brute Force | 999 | 214 | 214 |
+| DoS Hulk | 2,708 | 580 | 580 |
+| PortScan | 199 | 43 | 43 |
+| Total | 15,727 | 3,370 | 3,371 |
+
+The notebook keeps the port-free data in the `_3b` variables and the scaled inputs in `X_train_std_3b`, `X_val_std_3b`, `X_test_std_3b`. We use this dataset for the rest of the lab; the earlier port-based baseline and counterfactual remain separate.
 
 ## Task 4 - The rare class: loss and imbalance
 
