@@ -1,8 +1,8 @@
 # Lab 1 - Answers and notes
 
-`[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names.
+`[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names. CE means cross-entropy; PS means PortScan; FP counts all non-PortScan flows predicted as PortScan, not only Benign flows.
 
-**Status:** Tasks 2–5 are complete; Task 6 is pending. We retain weighted CE, AdamW lr=0.001 and batch 64.
+**Status:** Tasks 2–5 are complete. Task 6 code is prepared but has no saved execution outputs. We retain weighted CE, AdamW lr=0.001 and batch 64.
 
 ## Task 1 - Preprocessing
 
@@ -89,10 +89,10 @@ Relative to run 1, S1 changes only to raw features; S2 raises LR to 0.5; S3 lowe
 
 | Run | Setup | Val loss | Accuracy | Macro-F1 | Epochs | Best epoch | Train + val s |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Scaled reference, lr=5e-4 | 0.10890 | 0.9578 | 0.9325 | 150 | 145 | 39.12 |
-| 2 | S1: raw inputs, lr=5e-4 | 1218.416544 | 0.9326 | 0.8931 | 35 | 15 | 9.24 |
-| 3 | S2: scaled, lr=0.5 | 0.333414 | 0.9363 | 0.8953 | 33 | 13 | 8.80 |
-| 4 | S3: scaled, lr=5e-6 | 0.370412 | 0.9004 | 0.7391 | 150 | 150 | 39.71 |
+| 1 | Scaled reference, lr=5e-4 | 0.10890 | 0.9578 | 0.9325 | 150 | 145 | 63.60 |
+| 2 | S1: raw inputs, lr=5e-4 | 1218.416544 | 0.9326 | 0.8931 | 35 | 15 | 13.19 |
+| 3 | S2: scaled, lr=0.5 | 0.333414 | 0.9363 | 0.8953 | 33 | 13 | 14.82 |
+| 4 | S3: scaled, lr=5e-6 | 0.370412 | 0.9004 | 0.7391 | 150 | 150 | 55.19 |
 
 **[PDF §6.2] Failure modes and diagnosis from curves.**
 
@@ -139,7 +139,7 @@ Before training, we expected ReLU to outperform Linear. Both start from the same
 | DoS Hulk | 0.9665 | 0.9448 | 0.9555 | 0.9941 | 0.8672 | 0.9263 |
 | PortScan | 0.9685 | 0.9286 | 0.9481 | 0.7827 | 0.9299 | 0.8500 |
 
-ReLU confirms our prediction (macro-F1 0.95135 versus 0.87240). Linear particularly loses Brute Force recall and PortScan precision. ReLU restores epoch 196/200; Linear restores 55/75. Their times are **52.36 s** and **18.87 s**, respectively, not a combined time.
+ReLU confirms our prediction (macro-F1 0.95135 versus 0.87240). Linear particularly loses Brute Force recall and PortScan precision. ReLU restores epoch 196/200; Linear restores 55/75. Their times are **73.18 s** and **26.29 s**, respectively, not a combined time.
 
 We choose configurations/activations by validation macro-F1 and checkpoints by validation loss. Using test scores to choose would turn test into tuning data; we evaluate the selected ReLU model there.
 
@@ -226,7 +226,7 @@ The weights recover ten more PortScan flows but increase false PortScan predicti
 
 **[PDF §8] Which metric should we optimize?**
 
-We prioritize **PortScan recall**, accepting lower precision to miss fewer rare attacks. Between accuracy and macro-F1, macro-F1 better exposes minority-class errors; we report it alongside recall and false alarms. **Run 8's weighted loss is retained for Task 5**; run 7 remains the unweighted reference. The port-free test stays reserved.
+We prioritize **PortScan recall**, accepting lower precision to miss fewer rare attacks. Between accuracy and macro-F1, macro-F1 better exposes minority-class errors; we report it alongside recall and false alarms. **Run 8's weighted loss is retained for Task 5**; run 7 remains the unweighted reference. At this stage, the port-free test stays reserved for Task 5D.
 
 ## Task 5 - Varying the hyperparameters
 
@@ -255,7 +255,7 @@ The weighted single-layer baseline still has higher PortScan recall (41/43 versu
 
 The compact third stage helps (9→10); widening it does not (10→11); the fourth stage reduces false alarms at unchanged recall (11→12).
 
-These four candidates use 16 CPU threads. The current logbook retains these four weighted depth experiments. Timing includes epoch validation; comparisons use validation only.
+The saved execution reports 16 CPU threads; the code leaves PyTorch's thread count at its default. The current logbook retains these four weighted depth experiments. Timing includes epoch validation; comparisons use validation only.
 
 ### Task 5B - Batch size
 
@@ -277,7 +277,7 @@ The timing prediction holds: batch 16 performs more updates and takes 1.385 s/ep
 
 **[PDF §9.3] What did we find?** LR strongly changes SGD's behavior: moving from 0.001 to 0.01 raises PortScan recall from 90.70% to 100%, but lowers precision from 21.55% to 16.23%. AdamW is also sensitive: the same increase drops accuracy from 94.21% to 89.11% and macro-F1 from 0.8370 to 0.7904.
 
-SGD+momentum is less sensitive in accuracy and macro-F1 (changes of 1.16 and 0.14 percentage points), consistent with momentum smoothing updates. Its PortScan recall still changes by 9.30 points, so this stability does not hold for every metric.
+SGD+momentum is more stable than AdamW in accuracy and macro-F1 across these two learning rates (changes of 1.16 and 0.14 percentage points), consistent with momentum smoothing updates. Its PortScan recall still changes by 9.30 points, so this stability does not hold for every metric.
 
 Since two of the three optimizers show substantial LR sensitivity, we consider **LR the first tuning priority**, while optimizer choice remains crucial. This practical conclusion does not establish that LR dominates every metric. We keep **AdamW lr=0.001**: 40/43 PortScan detections and 58 false positives, versus 43/43 and 203 for momentum SGD at 0.001. It gives us high recall without excessive false alarms. SGD's L2 and AdamW's decoupled decay also limit isolation of the optimizer effect.
 
@@ -297,17 +297,17 @@ Since two of the three optimizers show substantial LR sensitivity, we consider *
 | PS false positives | 160 | 82 |
 | Parameters | 1,284 | 14,068 |
 
-**Q: Did complexity beat the baseline, and was it worth the runs?** The deeper model changes test accuracy from 0.89973 to 0.93474 and macro-F1 from 0.75237 to 0.81658. PortScan detections change from 43/43 to 41/43; false positives change from 160 to 82. The added complexity improves the overall precision/recall compromise; it almost dominated every metric. The current logbook retains 11 Task 5 experiments; three earlier unweighted trials are omitted. Baseline checkpoint reproduction is recorded separately and is not a new configuration. The deeper model is worth retaining for this tradeoff, but the seven additional batch/optimizer runs did not improve on the 5A candidate. The retained Task 5 comparison uses 11 experiments against the suggested ~10. Our fixed configuration is judged here without retuning on test. Full test reports and confusion matrices are in the notebook.
+**Q: Did complexity beat the baseline, and was it worth the runs?** The deeper model improves most reported test metrics and reduces PortScan false positives from 160 to 82, but detects 41/43 flows instead of 43/43. We retain it for this overall tradeoff, with 14,068 parameters versus 1,284 in the weighted baseline. The seven additional batch/optimizer experiments confirmed the 5A candidate without improving it. Task 5 therefore uses 11 retained experiments against the suggested ~10; three earlier unweighted trials are omitted. Baseline checkpoint reproduction does not add a new configuration. Settings and checkpoints were fixed using validation, without retuning on test. Full test reports and confusion matrices are in the notebook.
 
 ## Task 6 - Optimizations
 
-**[PDF §10] Large model and overfitting.** Pending: 256 -> 128 -> 64 -> 32 -> 16, ReLU, CE, AdamW lr=5e-4, batch 128, about 150-200 epochs, explicit weight_decay=0 and no early stopping. Record the curve prediction first.
+**[PDF §10] Large model and overfitting.** Code prepared, not executed in the saved notebook: 256 -> 128 -> 64 -> 32 -> 16, ReLU, unweighted CE, AdamW lr=5e-4, batch 128, exactly 200 epochs and explicit weight_decay=0. We use no dropout, batch normalization or early stopping and keep the final epoch's weights. Loss curves, final-epoch validation and a confusion matrix are included; no Task 6 test evaluation is implemented. The curve prediction has not yet been recorded.
 
 **[PDF §10] Optimization and final reflection.** Pending: try a smaller model/early stopping first, then weight decay, dropout and batch normalization one change at a time. Compare with the Task 4 references and use the completed logbook to judge performance per unit of effort.
 
 ## Logbook and submission
 
-The current logbook lists **19 retained experiments**, including **11 for Task 5**. Superseded runs are omitted. Batch 64 and AdamW lr=0.001 both reuse run 12 and are counted once; the baseline checkpoint replay is recorded separately.
+The current logbook lists **19 retained experiments**, including **11 for Task 5**. Superseded runs are omitted. Batch 64 and AdamW lr=0.001 both reuse run 12 and are counted once; baseline checkpoint reproduction does not add a new configuration.
 
 - [ ] Report `groupID_lab1.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
 - [ ] Experiment logbook, separate or appendix (outside the page limit).
