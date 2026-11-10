@@ -307,7 +307,7 @@ Since two of the three optimizers show substantial LR sensitivity, we consider *
 
 ## Logbook and submission
 
-The current logbook lists **19 retained experiments**, including **11 for Task 5**. Superseded runs are omitted. Batch 64 and AdamW lr=0.001 both reuse run 12 and are counted once; baseline checkpoint reproduction does not add a new configuration.
+The current logbook lists **19 retained experiments**, including **11 for Task 5**.  Batch 64 and AdamW lr=0.001 both reuse run 12 and are counted once; baseline checkpoint reproduction does not add a new configuration.
 
 - [ ] Report `groupID_lab1.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
 - [ ] Experiment logbook, separate or appendix (outside the page limit).
