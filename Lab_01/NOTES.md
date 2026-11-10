@@ -1,6 +1,6 @@
 # Lab 1 - Answers and notes
 
-`[PDF §...]` marks assignment questions. Results are from the saved notebook; historical runs are identified explicitly.
+`[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names.
 
 **Status:** Tasks 2–5 are complete; Task 6 is pending. We retain weighted CE, AdamW lr=0.001 and batch 64.
 
@@ -66,27 +66,9 @@ Our exploratory mean one-vs-rest scores are Benign 0.0929, Brute Force 0.1424, P
 
 ### Task 2A - Minimal classifier
 
-**[PDF §6.1] Configuration and historical attempts.**
+**[PDF §6.1] Configuration.** Our retained minimal classifier is run 1: 16 -> 64 -> 4, ReLU, ordinary CE, AdamW lr=5e-4/weight_decay=0.01, batch 64, maximum 150 epochs, patience 20, min_delta=5e-5, seed 42 and CPU. We restore the minimum-validation-loss checkpoint; min_delta controls patience.
 
-We use 16 -> 64 -> 4, ReLU, ordinary cross-entropy, AdamW lr=5e-4/weight_decay=0.01, batch 64, seed 42 and CPU. Each checkpoint is selected by minimum validation loss; min_delta controls the patience counter. The current notebook shows run 2.
-
-| Run | Historical attempt | Maximum epochs | Patience | min_delta | Best epoch | Val loss | Accuracy | Macro-F1 | Train + val s |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | First attempt | 100 | 20 | 1e-4 | 98 | 0.11698 | 0.9519 | 0.9234 | 26.55 |
-| 2 | Second attempt; current notebook output | 150 | 20 | 5e-5 | 145 | 0.10890 | 0.9578 | 0.9325 | 39.12 |
-
-**Prediction before the first scaled run:** Brute Force would be hardest because it has only 999 training samples; DoS Hulk might be easier given its higher exploratory separation score. Benign's low score suggested possible difficulty despite its larger support.
-
-**Historical run 1, 100 epochs:**
-
-| Class | Precision | Recall | F1 | Support |
-| --- | --- | --- | --- | --- |
-| Benign | 0.9670 | 0.9643 | 0.9656 | 2886 |
-| Brute Force | 0.7743 | 0.9299 | 0.8450 | 214 |
-| DoS Hulk | 0.9711 | 0.9259 | 0.9479 | 580 |
-| PortScan | 0.9403 | 0.9299 | 0.9351 | 728 |
-
-**Run 2, 150 epochs, currently saved:**
+**Prediction:** Brute Force would be hardest because it has only 999 training samples; DoS Hulk might be easier given its higher exploratory separation score.
 
 | Class | Precision | Recall | F1 | Support |
 | --- | --- | --- | --- | --- |
@@ -95,24 +77,22 @@ We use 16 -> 64 -> 4, ReLU, ordinary cross-entropy, AdamW lr=5e-4/weight_decay=0
 | DoS Hulk | 0.9907 | 0.9207 | 0.9544 | 580 |
 | PortScan | 0.9496 | 0.9313 | 0.9404 | 728 |
 
-**[PDF §6.1] Best epoch, convergence and per-class interpretation.**
+**[PDF §6.1] Best epoch and convergence.** We restore epoch 145: validation CE 0.10890, accuracy 0.9578 and macro-F1 0.9325. Early stopping does not trigger. Final train/validation CE is 0.10901/0.11041: curves flatten together, although small improvements continue.
 
-We restore epochs 98 and 145 respectively. Neither run triggers early stopping. Final train/validation CE is 0.1176/0.1174 for run 1 and 0.10901/0.11041 for run 2: curves flatten together without sustained validation deterioration, although small improvements continue.
-
-Brute Force has the lowest F1 in both runs (0.8450 -> 0.8652), supporting our prediction. Its recall stays 0.9299 while precision improves (0.7743 -> 0.8089); it is not uniquely weakest by recall. Benign performs best despite its low exploratory score. The heuristic averages features, misses nonlinear interactions and compares Benign with a heterogeneous mixture of attack classes. Class frequency is consistent with the outcome, but does not prove its cause. Run 2 changes both the epoch budget and min_delta, so the gain is not attributable to epochs alone.
+**[PDF §6.1] Per-class interpretation.** Brute Force has the lowest F1 (0.8652), supporting our prediction; recall is 0.9299 and precision 0.8089. Benign performs best despite its low exploratory score: averaging individual-feature scores misses nonlinear interactions and compares Benign with a heterogeneous mixture of attacks. Class frequency alone does not prove the cause of difficulty.
 
 ### Task 2B - Why the fundamentals matter
 
 **[PDF §6.2] Hypotheses and controlled changes.**
 
-Relative to run 2, S1 changes only to raw features; S2 raises LR to 0.5; S3 lowers it to 5e-6. We reset model, optimizer and seed for every run. Before training, we predicted unstable large losses for S1, oscillation/divergence for S2 and slow learning for S3, with expected damage S2 > S1 > S3.
+Relative to run 1, S1 changes only to raw features; S2 raises LR to 0.5; S3 lowers it to 5e-6. We reset model, optimizer and seed for every run. Before training, we predicted unstable large losses for S1, oscillation/divergence for S2 and slow learning for S3, with expected damage S2 > S1 > S3.
 
 | Run | Setup | Val loss | Accuracy | Macro-F1 | Epochs | Best epoch | Train + val s |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2 | Scaled reference, lr=5e-4 | 0.10890 | 0.9578 | 0.9325 | 150 | 145 | 39.12 |
-| 3 | S1: raw inputs, lr=5e-4 | 1218.416544 | 0.9326 | 0.8931 | 35 | 15 | 9.24 |
-| 4 | S2: scaled, lr=0.5 | 0.333414 | 0.9363 | 0.8953 | 33 | 13 | 8.80 |
-| 5 | S3: scaled, lr=5e-6 | 0.370412 | 0.9004 | 0.7391 | 150 | 150 | 39.71 |
+| 1 | Scaled reference, lr=5e-4 | 0.10890 | 0.9578 | 0.9325 | 150 | 145 | 39.12 |
+| 2 | S1: raw inputs, lr=5e-4 | 1218.416544 | 0.9326 | 0.8931 | 35 | 15 | 9.24 |
+| 3 | S2: scaled, lr=0.5 | 0.333414 | 0.9363 | 0.8953 | 33 | 13 | 8.80 |
+| 4 | S3: scaled, lr=5e-6 | 0.370412 | 0.9004 | 0.7391 | 150 | 150 | 39.71 |
 
 **[PDF §6.2] Failure modes and diagnosis from curves.**
 
@@ -130,7 +110,7 @@ We would fix **scaling first**, then LR: sensible magnitudes make optimization e
 
 **[PDF §6.3] Selected port-based baseline.**
 
-Run 7 uses 16 -> 64 -> 4, ReLU, ordinary CE, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42. We restore epoch 196. Run 6 changed both LR and epoch budget relative to run 2; run 7 then changed only weight decay (0.01 -> 0.005), improving validation macro-F1 by 0.00059. This is a small single-seed gain.
+Run 5 uses 16 -> 64 -> 4, ReLU, ordinary CE, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42. We restore epoch 196. This is our selected port-based baseline.
 
 **[PDF §6.3] Validation versus test: does it generalize?**
 
@@ -215,17 +195,17 @@ We use the 15-feature data for all later tasks, with a fresh stratified 70/15/15
 
 **[PDF §8] Prediction and rare-class detection.**
 
-Before the unweighted run, we expected PortScan to be hardest because only 199 training examples remain. Run 8 confirms this: lowest F1 (0.6526) and recall (0.7209), but **31/43** PortScan flows are still detected. We reuse the Task 2C settings with 15 inputs and ordinary CE.
+Before the unweighted run, we expected PortScan to be hardest because only 199 training examples remain. Run 7 confirms this: lowest F1 (0.6526) and recall (0.7209), but **31/43** PortScan flows are still detected. We reuse the Task 2C settings with 15 inputs and ordinary CE.
 
 **[PDF §8] Where do the class weights come from?**
 
-Training labels only, using `N / (4 * class_count)`: Benign 0.3326, Brute Force 3.9357, DoS Hulk 1.4519 and PortScan 19.7575. Using validation/test labels would feed held-out distribution information into the training objective. Run 9 keeps initialization, data and other settings fixed.
+Training labels only, using `N / (4 * class_count)`: Benign 0.3326, Brute Force 3.9357, DoS Hulk 1.4519 and PortScan 19.7575. Using validation/test labels would feed held-out distribution information into the training objective. Run 8 keeps initialization, data and other settings fixed.
 
 **[PDF §8] Prediction versus measured accuracy/macro-F1 changes.**
 
 We predicted slightly lower accuracy, higher macro-F1 and higher PortScan recall, with possible additional false alarms. **Accuracy and macro-F1 both fall**, by 4.60 and 9.66 percentage points. The macro-F1 prediction fails; lower accuracy, higher recall and more false alarms are confirmed.
 
-| Validation metric | Unweighted (run 8) | Weighted (run 9) |
+| Validation metric | Unweighted (run 7) | Weighted (run 8) |
 | --- | --- | --- |
 | Accuracy | 0.96172 | 0.91573 |
 | Macro-F1 | 0.86815 | 0.77160 |
@@ -242,11 +222,11 @@ We predicted slightly lower accuracy, higher macro-F1 and higher PortScan recall
 | DoS Hulk | 0.9419 | 0.8849 |
 | PortScan | 0.6526 | 0.3981 |
 
-The weights recover ten more PortScan flows but increase false PortScan predictions from **21 to 122**. Precision loss outweighs the recall gain in macro-F1. Run 8 restores epoch 129/149 (43.88 s); run 9 restores 117/137 (45.55 s). Weighted checkpoint CE is 0.18363; the comparison table uses ordinary CE for both models.
+The weights recover ten more PortScan flows but increase false PortScan predictions from **21 to 122**. Precision loss outweighs the recall gain in macro-F1. Run 7 restores epoch 129/149 (43.88 s); run 8 restores 117/137 (45.55 s). Weighted checkpoint CE is 0.18363; the comparison table uses ordinary CE for both models.
 
 **[PDF §8] Which metric should we optimize?**
 
-We prioritize **PortScan recall**, accepting lower precision to miss fewer rare attacks. Between accuracy and macro-F1, macro-F1 better exposes minority-class errors; we report it alongside recall and false alarms. **Run 9's weighted loss is retained for Task 5**; run 8 remains the unweighted reference. The port-free test stays reserved.
+We prioritize **PortScan recall**, accepting lower precision to miss fewer rare attacks. Between accuracy and macro-F1, macro-F1 better exposes minority-class errors; we report it alongside recall and false alarms. **Run 8's weighted loss is retained for Task 5**; run 7 remains the unweighted reference. The port-free test stays reserved.
 
 ## Task 5 - Varying the hyperparameters
 
@@ -254,28 +234,28 @@ We prioritize **PortScan recall**, accepting lower precision to miss fewer rare 
 
 **[PDF §9.1] Choice and predictions.** We retain Task 4B's balanced training-only weights: rare-attack recall matters more to us than precision. All four runs use ReLU, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42; split/scaler are unchanged.
 
-- **Run 13, 64 -> 64:** an extra nonlinear stage should retain recall and reduce false alarms.
-- **Run 14, 64 -> 64 -> 32:** a compact third stage may improve selectivity without losing rare flows.
-- **Run 15, 64 -> 128 -> 32:** middle-layer expansion should capture richer interactions than run 14.
-- **Run 16, 64 -> 128 -> 32 -> 16:** our exploratory comparison suggests extra compression may reduce false alarms at similar recall.
+- **Run 9, 64 -> 64:** an extra nonlinear stage should retain recall and reduce false alarms.
+- **Run 10, 64 -> 64 -> 32:** a compact third stage may improve selectivity without losing rare flows.
+- **Run 11, 64 -> 128 -> 32:** middle-layer expansion should capture richer interactions than run 10.
+- **Run 12, 64 -> 128 -> 32 -> 16:** our exploratory comparison suggests extra compression may reduce false alarms at similar recall.
 
-We select by PortScan recall, then macro-F1 when recall ties. Checkpoints minimize weighted validation CE; reported ordinary CE remains separate. Historical unweighted runs 10–12 stay in the logbook.
+We select by PortScan recall, then macro-F1 when recall ties. Checkpoints minimize weighted validation CE; reported ordinary CE remains separate. Superseded unweighted trials are omitted from the current logbook.
 
 | Run | Hidden layers | Accuracy | Macro-F1 | PS precision | PS recall | PS F1 | TP/43 | FP | Train + val s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 9 | 64 (weighted reference) | 0.91573 | 0.77160 | 0.2515 | 0.9535 | 0.3981 | 41 | 122 | 45.55 |
-| 13 | 64-64 | 0.93798 | 0.80917 | 0.3277 | 0.9070 | 0.4815 | 39 | 80 | 28.47 |
-| 14 | 64-64-32 | 0.94866 | 0.83485 | 0.3571 | 0.9302 | 0.5161 | 40 | 72 | 21.83 |
-| 15 | 64-128-32 | 0.94243 | 0.82179 | 0.3478 | 0.9302 | 0.5063 | 40 | 75 | 25.55 |
-| 16 | 64-128-32-16 | 0.94214 | 0.83696 | 0.4082 | 0.9302 | 0.5674 | 40 | 58 | 35.04 |
+| 8 | 64 (weighted reference) | 0.91573 | 0.77160 | 0.2515 | 0.9535 | 0.3981 | 41 | 122 | 45.55 |
+| 9 | 64-64 | 0.93798 | 0.80917 | 0.3277 | 0.9070 | 0.4815 | 39 | 80 | 28.47 |
+| 10 | 64-64-32 | 0.94866 | 0.83485 | 0.3571 | 0.9302 | 0.5161 | 40 | 72 | 21.83 |
+| 11 | 64-128-32 | 0.94243 | 0.82179 | 0.3478 | 0.9302 | 0.5063 | 40 | 75 | 25.55 |
+| 12 | 64-128-32-16 | 0.94214 | 0.83696 | 0.4082 | 0.9302 | 0.5674 | 40 | 58 | 35.04 |
 
-**[PDF §9.1] Does depth help?** We select **run 16, 64-128-32-16**, among the deeper candidates: PortScan recall 0.9302 (40/43), precision 0.4082, macro-F1 0.83696; 58 false PortScan predictions. Selection uses recall first, macro-F1 on ties.
+**[PDF §9.1] Does depth help?** We select **run 12, 64-128-32-16**, among the deeper candidates: PortScan recall 0.9302 (40/43), precision 0.4082, macro-F1 0.83696; 58 false PortScan predictions. Selection uses recall first, macro-F1 on ties.
 
 The weighted single-layer baseline still has higher PortScan recall (41/43 versus 40/43); depth improves precision and macro-F1, but has not beaten it on our primary metric. Added layers do not guarantee higher recall; parameter count also changes. If a single-layer model stays competitive, this small tabular task does not justify depth by itself.
 
-The compact third stage helps (13→14); widening it does not (14→15); the fourth stage reduces false alarms at unchanged recall (15→16).
+The compact third stage helps (9→10); widening it does not (10→11); the fourth stage reduces false alarms at unchanged recall (11→12).
 
-These four candidates use 16 CPU threads. At the end of 5A we had seven logged Task 5 runs including the three historical unweighted attempts. Timing includes epoch validation; comparisons use validation only.
+These four candidates use 16 CPU threads. The current logbook retains these four weighted depth experiments. Timing includes epoch validation; comparisons use validation only.
 
 ### Task 5B - Batch size
 
@@ -285,13 +265,13 @@ These four candidates use 16 CPU threads. At the end of 5A we had seven logged T
 
 | Batch | Accuracy | Macro-F1 | PS precision | PS recall | PS F1 | Epochs | Train + val s | Mean s/epoch |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 16 | 0.92315 | 0.81112 | 0.3939 | 0.9070 | 0.5493 | 36 | 49.87 | 35.04 |
+| 16 | 0.92315 | 0.81112 | 0.3939 | 0.9070 | 0.5493 | 36 | 49.87 | 1.385 |
 | 64 | 0.94214 | 0.83696 | 0.4082 | 0.9302 | 0.5674 | 71 | 35.04 | 0.494 |
 | 256 | 0.93116 | 0.78885 | 0.2797 | 0.9302 | 0.4301 | 87 | 16.72 | 0.192 |
 
 We keep **batch 64**: it has the highest accuracy and macro-F1, detects 40/43 PortScan flows with 58 false positives. Batch 16 detects 39/43 with 60 false positives, so the predicted generalization benefit is not supported. Batch 256 detects 40/43 but produces 103 false positives.
 
-The timing prediction holds: batch 16 performs more updates and takes 1.385 s/epoch; batch 256 takes 0.192 s/epoch. Batch 256 runs for more epochs (87 versus 71 for batch 64), yet finishes sooner overall. Batch 64 takes 35.04 s, between 49.87 s and 16.72 s. Times include validation; stopping epochs and updates per epoch both affect totals. Batch 64 reuses run 16; only batches 16/256 add training runs.
+The timing prediction holds: batch 16 performs more updates and takes 1.385 s/epoch; batch 256 takes 0.192 s/epoch. Batch 256 runs for more epochs (87 versus 71 for batch 64), yet finishes sooner overall. Batch 64 takes 35.04 s, between 49.87 s and 16.72 s. Times include validation; stopping epochs and updates per epoch both affect totals. Batch 64 reuses run 12; only batches 16/256 add training runs.
 
 ### Task 5C - Optimizer versus learning rate
 
@@ -317,7 +297,7 @@ Since two of the three optimizers show substantial LR sensitivity, we consider *
 | PS false positives | 160 | 82 |
 | Parameters | 1,284 | 14,068 |
 
-**Q: Did complexity beat the baseline, and was it worth the runs?** The deeper model changes test accuracy from 0.89973 to 0.93474 and macro-F1 from 0.75237 to 0.81658. PortScan detections change from 43/43 to 41/43; false positives change from 160 to 82. The added complexity improves the overall precision/recall compromise; it almost dominated every metric. We used 14 Task 5 search runs, including historical trials, plus one baseline-checkpoint reproduction for this comparison. The deeper model is worth retaining for this tradeoff, but the seven additional batch/optimizer runs did not improve on the 5A candidate. The search exceeded the suggested ~10-run budget. Our fixed configuration is judged here without retuning on test. Full test reports and confusion matrices are in the notebook.
+**Q: Did complexity beat the baseline, and was it worth the runs?** The deeper model changes test accuracy from 0.89973 to 0.93474 and macro-F1 from 0.75237 to 0.81658. PortScan detections change from 43/43 to 41/43; false positives change from 160 to 82. The added complexity improves the overall precision/recall compromise; it almost dominated every metric. The current logbook retains 11 Task 5 experiments; three earlier unweighted trials are omitted. Baseline checkpoint reproduction is recorded separately and is not a new configuration. The deeper model is worth retaining for this tradeoff, but the seven additional batch/optimizer runs did not improve on the 5A candidate. The retained Task 5 comparison uses 11 experiments against the suggested ~10. Our fixed configuration is judged here without retuning on test. Full test reports and confusion matrices are in the notebook.
 
 ## Task 6 - Optimizations
 
@@ -327,7 +307,7 @@ Since two of the three optimizers show substantial LR sensitivity, we consider *
 
 ## Logbook and submission
 
-The logbook has **25 training entries (1–24 and 7bis)**. Task 5 includes 14 search runs plus one checkpoint reproduction. Reusing batch 64/AdamW lr=0.001 and test inference add no training runs.
+The current logbook lists **19 retained experiments**, including **11 for Task 5**. Superseded runs are omitted. Batch 64 and AdamW lr=0.001 both reuse run 12 and are counted once; the baseline checkpoint replay is recorded separately.
 
 - [ ] Report `groupID_lab1.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
 - [ ] Experiment logbook, separate or appendix (outside the page limit).
