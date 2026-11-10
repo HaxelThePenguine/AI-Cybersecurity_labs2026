@@ -2,7 +2,7 @@
 
 `[PDF §...]` marks assignment questions. Results are from the saved notebook; historical runs are identified explicitly.
 
-**Status:** Tasks 2-4 and 5A are complete. Run 8 is our simple port-free reference; **run 10 (64 -> 64)** is our best depth candidate. Tasks 5B-5D and 6 are pending.
+**Status:** Tasks 2–5 are complete; Task 6 is pending. We retain weighted CE, AdamW lr=0.001 and batch 64.
 
 ## Task 1 - Preprocessing
 
@@ -242,54 +242,92 @@ We predicted slightly lower accuracy, higher macro-F1 and higher PortScan recall
 | DoS Hulk | 0.9419 | 0.8849 |
 | PortScan | 0.6526 | 0.3981 |
 
-The weights recover ten more PortScan flows but increase false PortScan predictions from **21 to 122**. Recall gains are outweighed by precision loss. Run 8 restores epoch 129/149 (30.14 s); run 9 restores 117/137 (28.40 s). Weighted checkpoint CE is 0.18363; the comparison table uses ordinary CE for both models.
+The weights recover ten more PortScan flows but increase false PortScan predictions from **21 to 122**. Precision loss outweighs the recall gain in macro-F1. Run 8 restores epoch 129/149 (43.88 s); run 9 restores 117/137 (45.55 s). Weighted checkpoint CE is 0.18363; the comparison table uses ordinary CE for both models.
 
 **[PDF §8] Which metric should we optimize?**
 
-We prioritize **macro-F1**: every class contributes equally, and precision matters alongside recall. Accuracy can hide rare attacks; recall alone can reward excessive false alarms. We monitor rare-class recall/precision and retain **run 8** as the simple port-free reference. Full reports/heatmaps are in the notebook; the port-free test is reserved for the later fixed-model comparison.
+We prioritize **PortScan recall**, accepting lower precision to miss fewer rare attacks. Between accuracy and macro-F1, macro-F1 better exposes minority-class errors; we report it alongside recall and false alarms. **Run 9's weighted loss is retained for Task 5**; run 8 remains the unweighted reference. The port-free test stays reserved.
 
 ## Task 5 - Varying the hyperparameters
 
-### Task 5A - Depth
+### Task 5A - Weighted depth comparison
 
-**[PDF §9.1] Architecture rationale and recorded hypotheses.**
+**[PDF §9.1] Choice and predictions.** We retain Task 4B's balanced training-only weights: rare-attack recall matters more to us than precision. All four runs use ReLU, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42; split/scaler are unchanged.
 
-- **64 -> 64 (run 10): minimal extension.** We keep the baseline's 64-unit representation and add one nonlinear transformation, without narrowing it. We expected the extra stage to combine flow statistics into more useful decision boundaries and improve macro-F1, particularly on PortScan.
-- **64 -> 32 -> 16 (run 11): progressive compression.** Three hidden stages learn a narrower representation with fewer parameters than 64 -> 64 (3,700 versus 5,444). We expected this capacity constraint to improve generalization, with the risk of discarding information needed for rare attacks.
-- **64 -> 64 -> 64 (run 12): constant-width follow-up.** After run 10 improved, we added a third 64-unit stage to test further depth without the bottleneck. We expected a modest additional gain, while recognizing the overfitting risk of 9,604 parameters. Contrasting the two three-layer designs also lets us examine narrowing versus retaining width.
+- **Run 13, 64 -> 64:** an extra nonlinear stage should retain recall and reduce false alarms.
+- **Run 14, 64 -> 64 -> 32:** a compact third stage may improve selectivity without losing rare flows.
+- **Run 15, 64 -> 128 -> 32:** middle-layer expansion should capture richer interactions than run 14.
+- **Run 16, 64 -> 128 -> 32 -> 16:** our exploratory comparison suggests extra compression may reduce false alarms at similar recall.
 
-All use run 8's unweighted port-free setup: ReLU, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42. Split and scaler stay fixed; each model starts fresh and restores its lowest-validation-loss checkpoint. We chose two initial architectures and one follow-up, not a grid.
+We select by PortScan recall, then macro-F1 when recall ties. Checkpoints minimize weighted validation CE; reported ordinary CE remains separate. Historical unweighted runs 10–12 stay in the logbook.
 
-| Run | Hidden layers | Accuracy | Macro-F1 | PortScan F1 | Parameters | Train + val s |
-| --- | --- | --- | --- | --- | --- | --- |
-| 8 | 64 (reference) | 0.96172 | 0.86815 | 0.6526 | 1,284 | 30.14 |
-| 10 | 64 -> 64 | 0.97774 | 0.93556 | 0.8571 | 5,444 | 35.63 |
-| 11 | 64 -> 32 -> 16 | 0.96973 | 0.88019 | 0.6535 | 3,700 | 29.42 |
-| 12 | 64 -> 64 -> 64 | 0.97359 | 0.91461 | 0.7826 | 9,604 | 29.72 |
+| Run | Hidden layers | Accuracy | Macro-F1 | PS precision | PS recall | PS F1 | TP/43 | FP | Train + val s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 9 | 64 (weighted reference) | 0.91573 | 0.77160 | 0.2515 | 0.9535 | 0.3981 | 41 | 122 | 45.55 |
+| 13 | 64-64 | 0.93798 | 0.80917 | 0.3277 | 0.9070 | 0.4815 | 39 | 80 | 28.47 |
+| 14 | 64-64-32 | 0.94866 | 0.83485 | 0.3571 | 0.9302 | 0.5161 | 40 | 72 | 21.83 |
+| 15 | 64-128-32 | 0.94243 | 0.82179 | 0.3478 | 0.9302 | 0.5063 | 40 | 75 | 25.55 |
+| 16 | 64-128-32-16 | 0.94214 | 0.83696 | 0.4082 | 0.9302 | 0.5674 | 40 | 58 | 35.04 |
 
-**[PDF §9.1] Does depth help?**
+**[PDF §9.1] Does depth help?** We select **run 16, 64-128-32-16**, among the deeper candidates: PortScan recall 0.9302 (40/43), precision 0.4082, macro-F1 0.83696; 58 false PortScan predictions. Selection uses recall first, macro-F1 on ties.
 
-Yes, in the first extension: **64 -> 64** improves macro-F1 by 0.06741 over the single-layer baseline. Runs 10/11 both detect 33/43 PortScan flows, but run 10 makes only one false PortScan prediction versus 25 for run 11. Run 12 detects 36/43, but makes 13 false predictions and has lower F1 than run 10.
+The weighted single-layer baseline still has higher PortScan recall (41/43 versus 40/43); depth improves precision and macro-F1, but has not beaten it on our primary metric. Added layers do not guarantee higher recall; parameter count also changes. If a single-layer model stays competitive, this small tabular task does not justify depth by itself.
 
-Our minimal-extension hypothesis is supported; the bottleneck and further-depth hypotheses are not. **Run 10 is our selected candidate.** One extra layer helps, but simply adding more depth does not. Had the single-layer model remained competitive, simplicity would have been preferable; here its lower macro-F1 supports a modest increase in complexity. Parameter count also varies, so this is not an isolated test of depth alone.
+The compact third stage helps (13→14); widening it does not (14→15); the fourth stage reduces false alarms at unchanged recall (15→16).
 
-We used **3 of about 10 Task 5 runs**. Timings include per-epoch validation and different stopping epochs, so they are not a pure speed comparison. These are single-seed results; run 8 remains the simple reference and the port-free test is untouched.
+These four candidates use 16 CPU threads. At the end of 5A we had seven logged Task 5 runs including the three historical unweighted attempts. Timing includes epoch validation; comparisons use validation only.
 
-**[PDF §9.2 - 5B] Batch size.** Pending: compare three sizes, recording predictions for generalization/time before each new run.
+### Task 5B - Batch size
 
-**[PDF §9.3 - 5C] Optimizer versus LR.** Pending: compare SGD, momentum SGD and AdamW with LR variation, within the remaining Task 5 budget.
+**[PDF §9.2] Predictions.** Batch 16: better generalization from noisier updates, but slower epochs. Batch 64: a good generalization/time compromise. Batch 256: faster epochs, possibly worse generalization and more epochs to converge. Architecture, weighted loss, LR and other settings stay fixed.
 
-**[PDF §9.4 - 5D] Final verdict.** Pending after validation comparisons: test the selected model against run 8 and judge the gain against its run cost.
+**Q: Report validation results and training time, and explain both.**
+
+| Batch | Accuracy | Macro-F1 | PS precision | PS recall | PS F1 | Epochs | Train + val s | Mean s/epoch |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 16 | 0.92315 | 0.81112 | 0.3939 | 0.9070 | 0.5493 | 36 | 49.87 | 35.04 |
+| 64 | 0.94214 | 0.83696 | 0.4082 | 0.9302 | 0.5674 | 71 | 35.04 | 0.494 |
+| 256 | 0.93116 | 0.78885 | 0.2797 | 0.9302 | 0.4301 | 87 | 16.72 | 0.192 |
+
+We keep **batch 64**: it has the highest accuracy and macro-F1, detects 40/43 PortScan flows with 58 false positives. Batch 16 detects 39/43 with 60 false positives, so the predicted generalization benefit is not supported. Batch 256 detects 40/43 but produces 103 false positives.
+
+The timing prediction holds: batch 16 performs more updates and takes 1.385 s/epoch; batch 256 takes 0.192 s/epoch. Batch 256 runs for more epochs (87 versus 71 for batch 64), yet finishes sooner overall. Batch 64 takes 35.04 s, between 49.87 s and 16.72 s. Times include validation; stopping epochs and updates per epoch both affect totals. Batch 64 reuses run 16; only batches 16/256 add training runs.
+
+### Task 5C - Optimizer versus learning rate
+
+**[PDF §9.3] What did we find?** LR strongly changes SGD's behavior: moving from 0.001 to 0.01 raises PortScan recall from 90.70% to 100%, but lowers precision from 21.55% to 16.23%. AdamW is also sensitive: the same increase drops accuracy from 94.21% to 89.11% and macro-F1 from 0.8370 to 0.7904.
+
+SGD+momentum is less sensitive in accuracy and macro-F1 (changes of 1.16 and 0.14 percentage points), consistent with momentum smoothing updates. Its PortScan recall still changes by 9.30 points, so this stability does not hold for every metric.
+
+Since two of the three optimizers show substantial LR sensitivity, we consider **LR the first tuning priority**, while optimizer choice remains crucial. This practical conclusion does not establish that LR dominates every metric. We keep **AdamW lr=0.001**: 40/43 PortScan detections and 58 false positives, versus 43/43 and 203 for momentum SGD at 0.001. It gives us high recall without excessive false alarms. SGD's L2 and AdamW's decoupled decay also limit isolation of the optimizer effect.
+
+### Task 5D - Test verdict
+
+**[PDF §9.4] Locked models:** weighted 15 -> 64 -> 4 baseline (Task 4B) versus weighted 15 -> 64 -> 128 -> 32 -> 16 -> 4, AdamW lr=0.001, batch 64. Checkpoints and configuration were fixed using validation; both use the same port-free test split. We reproduced the baseline checkpoint and checked that both models matched their saved validation results before inference.
+
+| Test metric | Weighted baseline | Selected deeper model |
+| --- | --- | --- |
+| Accuracy | 0.89973 | 0.93474 |
+| Macro-F1 | 0.75237 | 0.81658 |
+| Ordinary CE | 0.24536 | 0.18866 |
+| PS precision | 0.2118 | 0.3333 |
+| PS recall | 1.0000 | 0.9535 |
+| PS F1 | 0.3496 | 0.4940 |
+| PS detected /43 | 43 | 41 |
+| PS false positives | 160 | 82 |
+| Parameters | 1,284 | 14,068 |
+
+**Q: Did complexity beat the baseline, and was it worth the runs?** The deeper model changes test accuracy from 0.89973 to 0.93474 and macro-F1 from 0.75237 to 0.81658. PortScan detections change from 43/43 to 41/43; false positives change from 160 to 82. The added complexity improves the overall precision/recall compromise; it almost dominated every metric. We used 14 Task 5 search runs, including historical trials, plus one baseline-checkpoint reproduction for this comparison. The deeper model is worth retaining for this tradeoff, but the seven additional batch/optimizer runs did not improve on the 5A candidate. The search exceeded the suggested ~10-run budget. Our fixed configuration is judged here without retuning on test. Full test reports and confusion matrices are in the notebook.
 
 ## Task 6 - Optimizations
 
 **[PDF §10] Large model and overfitting.** Pending: 256 -> 128 -> 64 -> 32 -> 16, ReLU, CE, AdamW lr=5e-4, batch 128, about 150-200 epochs, explicit weight_decay=0 and no early stopping. Record the curve prediction first.
 
-**[PDF §10] Optimization and final reflection.** Pending: try a smaller model/early stopping first, then weight decay, dropout and batch normalization one change at a time. Compare with run 8 and use the completed logbook to judge performance per unit of effort.
+**[PDF §10] Optimization and final reflection.** Pending: try a smaller model/early stopping first, then weight decay, dropout and batch normalization one change at a time. Compare with the Task 4 references and use the completed logbook to judge performance per unit of effort.
 
 ## Logbook and submission
 
-We have **13 recorded training entries (1-12 and 7bis)**; Task 5 has used three. Runs 1 and 6 remain historical entries. Preprocessing/inference consume no training runs. The PDF asks for about 25 runs overall and about 10 within Task 5.
+The logbook has **25 training entries (1–24 and 7bis)**. Task 5 includes 14 search runs plus one checkpoint reproduction. Reusing batch 64/AdamW lr=0.001 and test inference add no training runs.
 
 - [ ] Report `groupID_lab1.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
 - [ ] Experiment logbook, separate or appendix (outside the page limit).

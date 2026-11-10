@@ -1,33 +1,51 @@
-# Lab 1 - Experiment logbook
-
-FFNN 16 -> 64 -> 4, ReLU; cross-entropy; AdamW, default lr=5e-4 (overrides below), weight decay=0.01; batch 64. Stratified 70/15/15 split, random_state=42.
-
-## Training runs
-
-| Run | Task | Model / change | Reason / expectation | Validation result | Train + val s | Conclusion |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | 2A | Historical first attempt; 100 epochs; StandardScaler | Brute Force hardest (999 training samples); DoS Hulk easier (highest separability score); Benign may also be difficult | Accuracy 0.9519; macro-F1 0.9234; best loss 0.11698 (epoch 98) | 26.55 | Brute Force has lowest F1 (0.8450), mainly due to precision. Curves flatten together; early stopping did not trigger within 100 epochs. |
-| 2 | 2A | Historical second attempt; 150 epochs; min_delta=5e-5; current notebook output | Not recorded before this run | Accuracy 0.9578; macro-F1 0.9325; best loss 0.10890 (epoch 145) | 39.12 | Macro-F1 improves by 0.0091 over run 1. Brute Force remains hardest (F1 0.8652), with better precision (0.8089). Early stopping did not trigger. |
-| 3 | 2B | S1: raw inputs; lr=5e-4 | Without scaling, we expect large/unstable losses | Accuracy 0.9326; macro-F1 0.8931; best loss 1218.416544 (epoch 15) | 9.24 | Large, erratic losses; macro-F1 below baseline. Early stop at 35; restored epoch 15. |
-| 4 | 2B | S2: scaled inputs; lr=0.5 | We expect oscillation or divergence | Accuracy 0.9363; macro-F1 0.8953; best loss 0.333414 (epoch 13) | 8.80 | Repeated loss spikes; poorer validation performance, but no sustained divergence. Early stop at 33; restored epoch 13. |
-| 5 | 2B | S3: scaled inputs; lr=5e-6 | We expect slow improvement within 150 epochs | Accuracy 0.9004; macro-F1 0.7391; best loss 0.370412 (epoch 150) | 39.71 | Smooth but slow learning; largest macro-F1 drop. All 150 epochs completed; best at 150. |
-| 6 | 2C | ReLU; lr=1e-3; max_epochs=200 | Validation-based tuning | Accuracy 0.96688; macro-F1 0.95076; best loss 0.09209 (epoch 200) | 52.74 | Macro-F1 improves by 0.0183 over run 2; Brute Force F1 0.9238. We also increased the epoch budget, so the gain is not attributable to LR alone. |
-| 7 | 2C | ReLU; weight_decay 0.01 -> 0.005; other settings as run 6 | Validation-based weight-decay tuning | Accuracy 0.96756; macro-F1 0.95135; best loss 0.08986 (epoch 196) | 52.36 | Our selected baseline: macro-F1 +0.00059 over run 6. Small gain on this seed; 200 epochs completed. |
-| 7bis | 2C | Identity instead of ReLU; other settings as run 7 | We expect removing ReLU to hurt per-class performance | Accuracy 0.91402; macro-F1 0.87240; best loss 0.28591 (epoch 55) | 18.87 | Macro-F1 below ReLU; Brute Force F1 0.7737. Early stop at 75; restored epoch 55. We keep run 7. |
-| 8 | 4 | Port-free 15 -> 64 -> 4; unweighted CE; Task 2C hyperparameters | We expect PortScan to be hardest: only 199 training samples remain | Accuracy 0.96172; macro-F1 0.86815; best loss 0.10506 (epoch 129) | 30.14 | Prediction confirmed: PortScan F1 0.6526, recall 0.7209 (31/43 detected). Early stop at 149. |
-| 9 | 4B | Balanced training-only class weights; other settings as run 8 | We expect accuracy to decrease, macro-F1 and PortScan recall to increase | Accuracy 0.91573; macro-F1 0.77160; best weighted CE 0.18363 (epoch 117) | 28.40 | Accuracy and macro-F1 both fall; PortScan recall rises to 0.9535 but precision falls to 0.2515. We keep run 8. |
-| 10 | 5A | Hidden layers 64 -> 64; other settings as unweighted run 8 | Add a nonlinear stage without narrowing width; expect richer interactions and higher macro-F1 | Accuracy 0.97774; macro-F1 0.93556; best CE 0.07418 (epoch 133) | 35.63 | Best depth candidate; PortScan F1 0.8571 with only one false PortScan prediction. Early stop at 153. |
-| 11 | 5A | Hidden layers 64 -> 32 -> 16; other settings as unweighted run 8 | Test progressive compression with fewer parameters than 64 -> 64; expect better generalization | Accuracy 0.96973; macro-F1 0.88019; best CE 0.08735 (epoch 94) | 29.42 | Below 64 -> 64; bottleneck hypothesis not confirmed. PortScan F1 0.6535. Early stop at 114. |
-| 12 | 5A | Hidden layers 64 -> 64 -> 64; other settings as unweighted run 8 | Follow up the 64 -> 64 gain with a third wide stage; expect a modest gain despite higher capacity | Accuracy 0.97359; macro-F1 0.91461; best CE 0.07588 (epoch 86) | 29.72 | Below run 10; further-gain hypothesis not confirmed. PortScan recall 36/43, F1 0.7826. Early stop at 106. |
-
-Recorded runs used CPU (one thread), seed 42 and patience 20. The current notebook leaves CPU threading at PyTorch's default; recorded timings refer to the previous one-thread setup. Run 1 uses at most 100 epochs and min_delta=1e-4; runs 2-5 use at most 150 epochs and min_delta=5e-5; runs 6-12 and 7bis use at most 200 epochs and min_delta=5e-5. S1-S3 each change one setting relative to run 2. We restore the lowest-validation-loss weights. Times include training and per-epoch validation. Runs 1-5, 7bis and 8-12 use validation only; runs 6 and 7 are also evaluated on test. Our port-based reference is run 7; run 8 is our unweighted port-free reference (lr=1e-3, weight_decay=0.005).
-
-**Budget:** 13 logged training entries (1-12 and 7bis); approximately 25 runs for the whole lab.
-
-**Run 6 - fixed-model test:** accuracy 0.96665; macro-F1 0.95369; loss 0.08992. Model selection uses validation.
-
-**Run 7 - final baseline test:** accuracy 0.96779; macro-F1 0.95516; loss 0.08612. Each time belongs to its own model: run 7 ReLU 52.36 s; run 7bis Linear 18.87 s.
-
-Run 9 uses weighted CE for checkpoint selection; its ordinary validation CE is 0.20914. Run 8 remains our selected port-free baseline.
-
-**Task 5A:** 3/approximately 10 Task 5 runs used. Run 10 is the best depth candidate by validation macro-F1; run 8 remains the simple reference.
+# Lab 1 - Experiment logbook
+
+FFNN 16 -> 64 -> 4, ReLU; cross-entropy; AdamW, default lr=5e-4 (overrides below), weight decay=0.01; batch 64. Stratified 70/15/15 split, random_state=42.
+
+## Training runs
+
+| Run | Task | Model / change | Reason / expectation | Validation result | Train + val s | Conclusion |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 2A | Historical first attempt; 100 epochs; StandardScaler | Brute Force hardest (999 training samples); DoS Hulk easier (highest separability score); Benign may also be difficult | Accuracy 0.9519; macro-F1 0.9234; best loss 0.11698 (epoch 98) | 26.55 | Brute Force has lowest F1 (0.8450), mainly due to precision. Curves flatten together; early stopping did not trigger within 100 epochs. |
+| 2 | 2A | Historical second attempt; 150 epochs; min_delta=5e-5; current notebook output | Not recorded before this run | Accuracy 0.9578; macro-F1 0.9325; best loss 0.10890 (epoch 145) | 39.12 | Macro-F1 improves by 0.0091 over run 1. Brute Force remains hardest (F1 0.8652), with better precision (0.8089). Early stopping did not trigger. |
+| 3 | 2B | S1: raw inputs; lr=5e-4 | Without scaling, we expect large/unstable losses | Accuracy 0.9326; macro-F1 0.8931; best loss 1218.416544 (epoch 15) | 9.24 | Large, erratic losses; macro-F1 below baseline. Early stop at 35; restored epoch 15. |
+| 4 | 2B | S2: scaled inputs; lr=0.5 | We expect oscillation or divergence | Accuracy 0.9363; macro-F1 0.8953; best loss 0.333414 (epoch 13) | 8.80 | Repeated loss spikes; poorer validation performance, but no sustained divergence. Early stop at 33; restored epoch 13. |
+| 5 | 2B | S3: scaled inputs; lr=5e-6 | We expect slow improvement within 150 epochs | Accuracy 0.9004; macro-F1 0.7391; best loss 0.370412 (epoch 150) | 39.71 | Smooth but slow learning; largest macro-F1 drop. All 150 epochs completed; best at 150. |
+| 6 | 2C | ReLU; lr=1e-3; max_epochs=200 | Validation-based tuning | Accuracy 0.96688; macro-F1 0.95076; best loss 0.09209 (epoch 200) | 52.74 | Macro-F1 improves by 0.0183 over run 2; Brute Force F1 0.9238. We also increased the epoch budget, so the gain is not attributable to LR alone. |
+| 7 | 2C | ReLU; weight_decay 0.01 -> 0.005; other settings as run 6 | Validation-based weight-decay tuning | Accuracy 0.96756; macro-F1 0.95135; best loss 0.08986 (epoch 196) | 52.36 | Our selected baseline: macro-F1 +0.00059 over run 6. Small gain on this seed; 200 epochs completed. |
+| 7bis | 2C | Identity instead of ReLU; other settings as run 7 | We expect removing ReLU to hurt per-class performance | Accuracy 0.91402; macro-F1 0.87240; best loss 0.28591 (epoch 55) | 18.87 | Macro-F1 below ReLU; Brute Force F1 0.7737. Early stop at 75; restored epoch 55. We keep run 7. |
+| 8 | 4 | Port-free 15 -> 64 -> 4; unweighted CE; Task 2C hyperparameters | We expect PortScan to be hardest: only 199 training samples remain | Accuracy 0.96172; macro-F1 0.86815; best loss 0.10506 (epoch 129) | 43.88 | Prediction confirmed: PortScan F1 0.6526, recall 0.7209 (31/43 detected). Early stop at 149. |
+| 9 | 4B | Balanced training-only class weights; other settings as run 8 | We expect accuracy to decrease, macro-F1 and PortScan recall to increase | Accuracy 0.91573; macro-F1 0.77160; best weighted CE 0.18363 (epoch 117) | 45.55 | PortScan recall rises to 0.9535; precision falls to 0.2515. We retain weighted CE for Task 5 to prioritize recall. |
+| 10 | 5A | Historical unweighted: Hidden layers 64 -> 64; other settings as unweighted run 8 | Add a nonlinear stage without narrowing width; expect richer interactions and higher macro-F1 | Accuracy 0.97774; macro-F1 0.93556; best CE 0.07418 (epoch 133) | 35.63 | Historical unweighted result; superseded by the controlled weighted series. PortScan F1 0.8571 with only one false PortScan prediction. Early stop at 153. |
+| 11 | 5A | Historical unweighted: Hidden layers 64 -> 32 -> 16; other settings as unweighted run 8 | Test progressive compression with fewer parameters than 64 -> 64; expect better generalization | Accuracy 0.96973; macro-F1 0.88019; best CE 0.08735 (epoch 94) | 29.42 | Historical unweighted result; superseded by the controlled weighted series. Below 64 -> 64; bottleneck hypothesis not confirmed. PortScan F1 0.6535. Early stop at 114. |
+| 12 | 5A | Historical unweighted: Hidden layers 64 -> 64 -> 64; other settings as unweighted run 8 | Follow up the 64 -> 64 gain with a third wide stage; expect a modest gain despite higher capacity | Accuracy 0.97359; macro-F1 0.91461; best CE 0.07588 (epoch 86) | 29.72 | Historical unweighted result; superseded by the controlled weighted series. Below run 10; further-gain hypothesis not confirmed. PortScan recall 36/43, F1 0.7826. Early stop at 106. |
+| 13 | 5A | 64 -> 64; weighted CE; Task 4B settings | An extra nonlinear stage should retain recall and reduce false alarms | Accuracy 0.93798; macro-F1 0.80917; PS recall 0.9070, precision 0.3277; best weighted CE 0.16578 (epoch 56) | 28.47 | PortScan 39/43 detected, 80 false positives; F1 0.4815. Stopped at 76. |
+| 14 | 5A | 64 -> 64 -> 32; weighted CE; Task 4B settings | Compact third stage: expect greater selectivity while preserving rare flows | Accuracy 0.94866; macro-F1 0.83485; PS recall 0.9302, precision 0.3571; best weighted CE 0.15083 (epoch 40) | 21.83 | PortScan 40/43 detected, 72 false positives; F1 0.5161. Stopped at 60. |
+| 15 | 5A | 64 -> 128 -> 32; weighted CE; Task 4B settings | Widen only the middle stage versus run 14; expect richer feature interactions | Accuracy 0.94243; macro-F1 0.82179; PS recall 0.9302, precision 0.3478; best weighted CE 0.16668 (epoch 40) | 25.55 | PortScan 40/43 detected, 75 false positives; F1 0.5063. Stopped at 60. |
+| 16 | 5A / 5B | 64 -> 128 -> 32 -> 16; weighted CE; Task 4B settings | Exploratory result suggests fewer false alarms at similar recall; verify with fixed settings | Accuracy 0.94214; macro-F1 0.83696; PS recall 0.9302, precision 0.4082; best weighted CE 0.14999 (epoch 51) | 35.04 | Selected deeper candidate. PortScan 40/43 detected, 58 false positives; F1 0.5674. Stopped at 71. Reused as batch-64 reference in 5B. |
+| 17 | 5B | Batch 16; other settings as run 16 | Noisier updates may generalize better; slower epochs | Accuracy 0.92315; macro-F1 0.81112; PS recall 0.9070, precision 0.3939; best epoch 35 | 49.87 | 36 epochs; 1.385 s/epoch. We keep batch 64. |
+| 18 | 5B | Batch 256; other settings as run 16 | Faster epochs, possibly poorer generalization and more epochs | Accuracy 0.93116; macro-F1 0.78885; PS recall 0.9302, precision 0.2797; best epoch 67 | 16.72 | 87 epochs; 0.192 s/epoch. We keep batch 64. |
+| 19 | 5C | SGD, lr=0.01; other settings as run 16 | Compare LR within optimizers and optimizer at fixed LR | Accuracy 0.89585; macro-F1 0.74070; PS recall 1.0000, precision 0.1623; best epoch 117 | 40.77 | 137 epochs. We retain AdamW lr=0.001 (run 16 reused). |
+| 20 | 5C | SGD, lr=0.001; other settings as run 16 | Compare LR within optimizers and optimizer at fixed LR | Accuracy 0.89881; macro-F1 0.74602; PS recall 0.9070, precision 0.2155; best epoch 200 | 60.90 | 200 epochs. We retain AdamW lr=0.001 (run 16 reused). |
+| 21 | 5C | SGD+momentum, lr=0.01; other settings as run 16 | Compare LR within optimizers and optimizer at fixed LR | Accuracy 0.89466; macro-F1 0.75187; PS recall 0.9070, precision 0.2468; best epoch 19 | 12.74 | 39 epochs. We retain AdamW lr=0.001 (run 16 reused). |
+| 22 | 5C | SGD+momentum, lr=0.001; other settings as run 16 | Compare LR within optimizers and optimizer at fixed LR | Accuracy 0.90623; macro-F1 0.75048; PS recall 1.0000, precision 0.1748; best epoch 100 | 39.26 | 120 epochs. We retain AdamW lr=0.001 (run 16 reused). |
+| 23 | 5C | AdamW, lr=0.01; other settings as run 16 | Compare LR within optimizers and optimizer at fixed LR | Accuracy 0.89110; macro-F1 0.79040; PS recall 0.9070, precision 0.4239; best epoch 35 | 26.42 | 55 epochs. We retain AdamW lr=0.001 (run 16 reused). |
+| 24 | 5D reproduction | Reproduce run 9 checkpoint with original settings | Validation must match before evaluating test | Validation macro-F1 0.77160; best epoch 117; original validation result matched | Not retained | Checkpoint reconstruction only; no tuning or configuration change. |
+
+Historical runs were initially measured with one CPU thread. Runs 13–16 use default CPU threading (16 threads), seed 42 and patience 20; times belong to each recorded execution. Run 1 uses at most 100 epochs and min_delta=1e-4; runs 2-5 use at most 150 epochs and min_delta=5e-5; runs 6-24 and 7bis use at most 200 epochs and min_delta=5e-5. S1-S3 each change one setting relative to run 2. We restore the lowest-validation-loss weights. Times include training and per-epoch validation. Runs 1-5, 7bis and 8-23 use validation only; runs 6 and 7 are also evaluated on test. Our port-based reference is run 7; run 8 is our unweighted port-free reference (lr=1e-3, weight_decay=0.005).
+
+**Budget:** 25 training entries (1–24 and 7bis). Task 5: 14 search runs plus one baseline reproduction. Reused references and inference add no runs.
+
+**Run 6 - fixed-model test:** accuracy 0.96665; macro-F1 0.95369; loss 0.08992. Model selection uses validation.
+
+**Run 7 - final baseline test:** accuracy 0.96779; macro-F1 0.95516; loss 0.08612. Each time belongs to its own model: run 7 ReLU 52.36 s; run 7bis Linear 18.87 s.
+
+Run 9 uses weighted CE for checkpoint selection; its ordinary validation CE is 0.20914. Run 9 is our recall-oriented weighted baseline for Task 5; run 8 remains the unweighted reference.
+
+**Task 5A:** Four controlled weighted candidates (13–16), plus three historical unweighted entries (10–12). Selected deeper model: run 16, 64-128-32-16, by PortScan recall then macro-F1. The weighted single-layer baseline still has higher PortScan recall (41/43 versus 40/43); depth improves precision and macro-F1, but has not beaten it on our primary metric.
+
+**Task 5B:** Batch 64 reuses run 16; batches 16/256 are runs 17/18. Batch 64 wins the validation compromise.
+
+**Task 5C:** Five new runs (19–23); AdamW lr=0.001 reuses run 16. We keep AdamW lr=0.001.
+
+**Task 5D:** The deeper model changes test accuracy from 0.89973 to 0.93474 and macro-F1 from 0.75237 to 0.81658. PortScan detections change from 43/43 to 41/43; false positives change from 160 to 82. The added complexity improves the overall precision/recall compromise; it does not dominate every metric. We used 14 Task 5 search runs, including historical trials, plus one baseline-checkpoint reproduction for this comparison. The deeper model is worth retaining for this tradeoff, but the seven additional batch/optimizer runs did not improve on the 5A candidate. The search exceeded the suggested ~10-run budget. Our fixed configuration is judged here without retuning on test.
