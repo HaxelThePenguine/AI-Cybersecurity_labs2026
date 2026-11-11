@@ -112,8 +112,6 @@ We keep **`nu = 0.01`** (run 1). The default flags half of normal traffic; its h
 
 ## Task 3 - Local Outlier Factor
 
-*Developed in the temporary notebook `lab3_task3.ipynb` (to be merged into `lab3.ipynb`).*
-
 **Knowledge assumed.** LOF is fitted on the full training file (normal + all attacks, no labels). Only the aggregate training contamination (0.286) is used, to set the threshold (known-contamination setting, as in Task 2). Euclidean distance on the 106 preprocessed features.
 
 **[PDF §3] Four `n_neighbors` values and selection criterion.**
