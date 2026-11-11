@@ -1,8 +1,8 @@
 # Lab 1 - Answers and notes
 
-`[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names. CE means cross-entropy; PS means PortScan; FP counts all non-PortScan flows predicted as PortScan, not only Benign flows.
+`[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names. CE means cross-entropy; PS means PortScan; PS FP counts all non-PortScan flows predicted as PortScan. Elsewhere, unqualified FP has the same meaning; the extra test comparison explicitly labels binary false alarms as Benign FP.
 
-**Status:** Tasks 2-5 and all six Task 6 validation experiments are executed. For Task 6, we retain the original 256-128-64-32-16 model with early stopping and no additional regularizer. Its final test comparison is pending.
+**Status:** Tasks 2-5 and all six current Task 6 validation configurations are executed, including the smaller fixed-epoch Task 6A bis replacement. We retain the original Task 6A network with early stopping and no additional regularizer. The final test comparison and the extra comparison of all 25 logged models are executed; final conclusions remain to be written.
 
 ## Task 1 - Preprocessing
 
@@ -311,12 +311,12 @@ Since two of the three optimizers show substantial LR sensitivity, we consider *
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 20 | Fixed 200 epochs | 0.07374 | 0.97834 | 0.92934 | 32 | 2 | 200 | 200 |
 | 21 | Early stopping | 0.06726 | 0.97864 | 0.94799 | 37 | 2 | 160 | 140 |
-| 22 | Smaller network + early stopping | 0.06467 | 0.97923 | 0.94770 | 37 | 2 | 160 | 140 |
+| 22 | Smaller network, fixed 200 epochs | 0.07321 | 0.97656 | 0.89968 | 25 | 1 | 200 | 200 |
 | 23 | Weight decay 0.005 | 0.07680 | 0.97300 | 0.94203 | 37 | 2 | 139 | 120 |
 | 24 | Dropout 0.2 | 0.07797 | 0.97270 | 0.93587 | 35 | 2 | 169 | 149 |
 | 25 | Batch normalization | 0.09598 | 0.96172 | 0.88370 | 35 | 23 | 59 | 39 |
 
-All six configurations are executed. Results refer to this split and seed; no Task 6 test evaluation is saved. Epochs count the work completed, while checkpoint epoch identifies the weights evaluated.
+All six current Task 6 configurations are executed; the smaller fixed-epoch model uses its final epoch, not an early-stopped checkpoint. Results refer to this split and seed; the final Task 6 test results are recorded below. Epochs count the work completed, while checkpoint epoch identifies the weights evaluated.
 
 ### Task 6A - Early stopping
 
@@ -324,11 +324,13 @@ All six configurations are executed. Results refer to this split and seed; no Ta
 
 **Result.** Run 21 stops at epoch 160 and restores epoch 140. Compared with the fixed-epoch model, CE improves from 0.07374 to 0.06726 and macro-F1 from 0.92934 to 0.94799. PortScan detections rise from 32/43 to 37/43, with the same two false positives. We save 40 training epochs (20%) and obtain better validation results. This is the clearest performance-per-effort gain within Task 6.
 
-### Task 6A bis - Smaller network
+### Task 6A bis - Smaller network without early stopping
 
-**Controlled change.** Run 22 removes only the last 16-unit hidden layer, leaving 256 -> 128 -> 64 -> 32. It retains the same unweighted loss, optimizer, seed, batch size and early stopping.
+**Controlled change.** We remove only the final 16-unit hidden layer from the initial fixed-epoch Task 6 model, giving 256 -> 128 -> 64 -> 32 with 47,460 parameters. We retain unweighted CE, AdamW lr=5e-4, weight_decay=0, batch 128 and seed 42. We train for exactly 200 epochs with no dropout, batch normalization, early stopping or best-checkpoint restoration; final-epoch weights are evaluated.
 
-**Result.** Validation CE falls to 0.06467 and accuracy rises to 0.97923, while macro-F1 is marginally lower (0.94770 versus 0.94799). PortScan detections and false positives remain 37/43 and two. We remove only 464 parameters (0.97%), and both models complete 160 epochs and restore epoch 140. The smaller model is competitive, but this small simplification gives no clear overall gain. We keep the original early-stopping model as our Task 6 reference; the tiny score differences from one split do not establish a robust architecture ranking.
+**Comparison.** We compare the original network with early stopping against the smaller network with fixed-epoch training. These are two alternative interventions from the same initial setup.
+
+**Result.** We complete 200 epochs and evaluate the final weights: validation CE 0.07321, accuracy 0.97656 and macro-F1 0.89968. We detect 25/43 PortScan flows (58.14% recall), with 18 class false negatives and 1 false positive. Compared with the original early-stopping model, macro-F1 falls from 0.94799 and detections from 37/43; PortScan false positives fall from two to one. We remove only 464 parameters (0.97%) and complete 200 rather than 160 epochs. For this split and seed, early stopping gives the better validation compromise; this compares two alternative interventions and does not isolate architecture alone.
 
 ### Task 6B - Mutually exclusive regularizers
 
@@ -338,17 +340,46 @@ All six configurations are executed. Results refer to this split and seed; no Ta
 - **Dropout 0.2 after each hidden ReLU:** macro-F1 falls to 0.93587 and PortScan detections to 35/43, with two false positives. It completes 169 epochs, more than early stopping alone. Its training loss includes active dropout, whereas validation disables it, so a lower validation curve than training is not itself evidence of better generalization.
 - **BatchNorm1d before each hidden ReLU:** validation loss shows large spikes while training loss declines. Even the restored checkpoint has CE 0.09598 and macro-F1 0.88370; PortScan detections fall to 35/43 and false positives rise to 23. It stops at epoch 59 and restores epoch 39, but this configuration gives the weakest validation compromise.
 
-**Decision.** None of the three regularizers improves on early stopping alone at the tested settings. We retain the original five-hidden-layer model with early stopping and no additional regularizer for the Task 6 comparison. This conclusion concerns these settings and this split, rather than every possible decay, dropout or normalization configuration. No directional pretraining prediction was recorded for the smaller-network and regularization trials; we report their comparison purpose without adding retrospective hypotheses.
+**Decision.** None of the three regularizers improves on early stopping alone at the tested settings. We retain the original five-hidden-layer model with early stopping and no additional regularizer for the Task 6 comparison. This conclusion concerns these settings and this split, rather than every possible decay, dropout or normalization configuration. No directional pretraining prediction was recorded for the regularization trials; we report their comparison purpose without adding retrospective hypotheses.
 
 ### Baseline comparison and interim reflection
 
-**[PDF §10] Which change helped most for the least effort?** Early stopping improves macro-F1 and rare-class recall while avoiding 20% of the fixed epoch budget. Removing the final hidden layer is nearly neutral; the three additional regularization trials do not improve the selected reference. Across the lab, sensible scaling and LR made optimization usable, removing Destination Port exposed a shortcut, and class weighting made the rare-attack recall/false-alarm tradeoff explicit. Extra depth and regularization gave smaller or inconsistent gains relative to these fundamental decisions.
+**[PDF §10] Which change helped most for the least effort?** Early stopping improves macro-F1 and rare-class recall while avoiding 20% of the fixed epoch budget. The smaller fixed-epoch alternative reduces parameters by only 0.97% and gives lower validation macro-F1 and PortScan recall; the three additional regularization trials do not improve the selected reference. Across the lab, sensible scaling and LR made optimization usable, removing Destination Port exposed a shortcut, and class weighting made the rare-attack recall/false-alarm tradeoff explicit. Extra depth and regularization gave smaller or inconsistent gains relative to these fundamental decisions.
 
-**[PDF §10] Did the big network beat the simple baseline?** On validation, Task 6A improves accuracy and macro-F1 over both Task 4 references. Against the unweighted baseline it detects 37/43 rather than 31/43 PortScan flows, with two rather than 21 false positives. Against the weighted baseline it detects fewer (37/43 versus 41/43), but reduces false positives from 122 to two. We therefore improve the overall compromise without dominating rare-class recall. The required final test comparison remains pending; validation results cannot establish that verdict.
+**[PDF §10] Did the big network beat the simple baseline?** On validation, Task 6A improves accuracy and macro-F1 over both Task 4 references. Against the unweighted baseline it detects 37/43 rather than 31/43 PortScan flows, with two rather than 21 false positives. Against the weighted baseline it detects fewer (37/43 versus 41/43), but reduces false positives from 122 to two. We therefore improve the overall compromise without dominating rare-class recall. The final test results are recorded below; the final conclusions remain to be written.
+
+### Final test comparison - numerical results
+
+**[PDF §10] Fixed models.** We evaluate the weighted Task 4B baseline and the validation-selected original Task 6A network with early stopping, using their existing trained checkpoints and the same 3,371-sample port-free test split. The Task 6A checkpoint is epoch 140. No training or test-based retuning is performed; CE is unweighted for both evaluations.
+
+| Test metric | Weighted Task 4B baseline | Selected Task 6A |
+| --- | --- | --- |
+| Ordinary CE | 0.24536 | 0.06560 |
+| Accuracy | 0.89973 | 0.97686 |
+| Macro-F1 | 0.75237 | 0.94420 |
+| PS precision | 0.2118 | 0.9722 |
+| PS recall | 1.0000 | 0.8140 |
+| PS F1 | 0.3496 | 0.8861 |
+| PS detected /43 | 43 | 35 |
+| PS missed /43 | 0 | 8 |
+| PS false positives | 160 | 1 |
+| Parameters | 1,284 | 47,924 |
+
+The notebook contains the executed classification reports, per-class comparison and confusion matrices. This inference adds no training experiment; the logbook contains 25 current executed configurations, including the smaller fixed-epoch replacement. Our conclusions for this comparison remain to be written.
+
+## Extra - All logged models on the test set
+
+We include all 25 current configurations in two overview figures: six with Destination Port and nineteen port-free. We evaluate all 25 existing checkpoints by inference, including the replacement smaller fixed-epoch model. The selected Task 5D checkpoint is highlighted and counted once despite its reuse across Tasks 5A/5B/5C.
+
+**False negatives.** Attack FN counts malicious flows classified as Benign; Attack FNR divides this count by actual attacks. BF/DoS/PS FN also includes confusion with another attack type, which still triggers an attack alarm. Benign FP counts benign flows classified as any attack; PS FP instead includes any non-PortScan flow classified as PortScan. We keep these definitions separate in the tables and plots.
+
+The with-port and port-free tests contain 1,521 and 837 attacks respectively, so their raw counts have different denominators. Within each group every model uses the same test samples. Test comparisons describe the existing models without changing validation-based selections; final conclusions remain to be written.
+
+**Smaller-model test results.** Task 6A bis obtains accuracy 0.97419, macro-F1 0.90536 and ordinary CE 0.07386. It misses 55 of 837 attacks at the binary alarm level (Attack FNR 6.57%), versus 49 for the original early-stopping model, with 25 versus 27 benign false alarms. It detects 26/43 PortScan flows and has 17 PortScan class false negatives, versus 8 for early stopping; both have one PortScan false positive. These test results describe the fixed models without changing the validation-based selection.
 
 ## Logbook and submission
 
-The current logbook lists **25 retained experiments**, including **11 for Task 5** and **six for Task 6**.  Batch 64 and AdamW lr=0.001 both reuse run 12 and are counted once; baseline checkpoint reproduction does not add a new configuration.
+The current logbook lists **25 executed configurations**, including **11 for Task 5** and **six for Task 6**.  Batch 64 and AdamW lr=0.001 both reuse run 12 and are counted once; baseline checkpoint reproduction does not add a new configuration.
 
 - [ ] Report `groupID_lab1.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
 - [ ] Experiment logbook, separate or appendix (outside the page limit).
