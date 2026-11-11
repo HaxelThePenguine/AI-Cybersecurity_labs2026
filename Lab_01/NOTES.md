@@ -2,7 +2,7 @@
 
 `[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names. CE means cross-entropy; PS means PortScan; FP counts all non-PortScan flows predicted as PortScan, not only Benign flows.
 
-**Status:** Tasks 2–5 are complete. Task 6 code is prepared but has no saved execution outputs. We retain weighted CE, AdamW lr=0.001 and batch 64.
+**Status:** Tasks 2-5 and all six Task 6 validation experiments are executed. For Task 6, we retain the original 256-128-64-32-16 model with early stopping and no additional regularizer. Its final test comparison is pending.
 
 ## Task 1 - Preprocessing
 
@@ -301,20 +301,54 @@ Since two of the three optimizers show substantial LR sensitivity, we consider *
 
 ## Task 6 - Optimizations
 
-**[PDF §10] Large model and overfitting.** Code prepared, not executed in the saved notebook: 256 -> 128 -> 64 -> 32 -> 16, ReLU, unweighted CE, AdamW lr=5e-4, batch 128, exactly 200 epochs and explicit weight_decay=0. We use no dropout, batch normalization or early stopping and keep the final epoch's weights. Loss curves, final-epoch validation and a confusion matrix are included; no Task 6 test evaluation is implemented. The curve prediction has not yet been recorded.
+**[PDF §10] Setup and prediction.** We use the port-free data, ReLU, unweighted CE, AdamW lr=5e-4, batch 128 and seed 42. The initial network has hidden sizes 256 -> 128 -> 64 -> 32 -> 16 and 47,924 parameters, weight_decay=0, no dropout or batch normalization, and 200 fixed epochs with final-epoch weights. Before training, we expected a fairly smooth decline, substantial early learning and possible late overfitting.
 
+**Where we see overfitting.** The curves decline together initially, then flatten with late validation fluctuations. From epoch 140 to 200, training CE falls from 0.06258 to 0.05941 while validation CE rises from 0.06726 to 0.07374. This supports modest late overfitting rather than a large, sustained divergence.
 
-Noi ci aspettiamo una curva amolto smooth e a causa del fatto che abbimao 5 layer ci aspettiamo più epoche per una covergenza buona,
-con AdamW ci aspettiamo cmq in poche poche una buona parte di convergenza, lr basso ci porta cmq poco rumore ma più epoche necessarie, e il batch da 128 ci da poco rumore e il fatto che non ci sia eraly stoppong rischia di essere un fattore di inefficenza.
-E per il numero di parametri e deepness e assenza early stopping ci aspettavamio che verso le epoche finali il modello overfitti.  
+### Saved validation results
 
-Trovato, curva davvero smooth come previsto molto meno overfitting di quanto prevetnivato e ciò c'ha stupito,cmq verso la fine un pochino resta visibile e prevediamo che con eraly stopping le perfoamrce possano migliroare con meno epoche.
+| Run | Configuration | Validation CE | Accuracy | Macro-F1 | PS detected /43 | PS FP | Epochs | Checkpoint epoch |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 20 | Fixed 200 epochs | 0.07374 | 0.97834 | 0.92934 | 32 | 2 | 200 | 200 |
+| 21 | Early stopping | 0.06726 | 0.97864 | 0.94799 | 37 | 2 | 160 | 140 |
+| 22 | Smaller network + early stopping | 0.06467 | 0.97923 | 0.94770 | 37 | 2 | 160 | 140 |
+| 23 | Weight decay 0.005 | 0.07680 | 0.97300 | 0.94203 | 37 | 2 | 139 | 120 |
+| 24 | Dropout 0.2 | 0.07797 | 0.97270 | 0.93587 | 35 | 2 | 169 | 149 |
+| 25 | Batch normalization | 0.09598 | 0.96172 | 0.88370 | 35 | 23 | 59 | 39 |
 
-**[PDF §10] Optimization and final reflection.** Pending: try a smaller model/early stopping first, then weight decay, dropout and batch normalization one change at a time. Compare with the Task 4 references and use the completed logbook to judge performance per unit of effort.
+All six configurations are executed. Results refer to this split and seed; no Task 6 test evaluation is saved. Epochs count the work completed, while checkpoint epoch identifies the weights evaluated.
+
+### Task 6A - Early stopping
+
+**Controlled change and prediction.** We keep the original architecture and all training settings, adding patience 20 and min_delta=5e-5, with a maximum of 200 epochs. We restore the absolute minimum-validation-CE checkpoint; min_delta controls patience only. We expected fewer epochs and possibly better validation performance.
+
+**Result.** Run 21 stops at epoch 160 and restores epoch 140. Compared with the fixed-epoch model, CE improves from 0.07374 to 0.06726 and macro-F1 from 0.92934 to 0.94799. PortScan detections rise from 32/43 to 37/43, with the same two false positives. We save 40 training epochs (20%) and obtain better validation results. This is the clearest performance-per-effort gain within Task 6.
+
+### Task 6A bis - Smaller network
+
+**Controlled change.** Run 22 removes only the last 16-unit hidden layer, leaving 256 -> 128 -> 64 -> 32. It retains the same unweighted loss, optimizer, seed, batch size and early stopping.
+
+**Result.** Validation CE falls to 0.06467 and accuracy rises to 0.97923, while macro-F1 is marginally lower (0.94770 versus 0.94799). PortScan detections and false positives remain 37/43 and two. We remove only 464 parameters (0.97%), and both models complete 160 epochs and restore epoch 140. The smaller model is competitive, but this small simplification gives no clear overall gain. We keep the original early-stopping model as our Task 6 reference; the tiny score differences from one split do not establish a robust architecture ranking.
+
+### Task 6B - Mutually exclusive regularizers
+
+**Controlled comparisons.** Each variant starts from the original Task 6A architecture and a fresh model with the same seed and batch order. We keep early stopping and unweighted CE. Runs 23-25 enable only one regularizer each; the other two remain disabled.
+
+- **Weight decay 0.005:** macro-F1 falls to 0.94203 and CE rises to 0.07680. PortScan stays at 37/43 with two false positives, but DoS Hulk recall falls from 0.9534 to 0.9121. Stopping after 139 epochs does not compensate for the poorer validation results.
+- **Dropout 0.2 after each hidden ReLU:** macro-F1 falls to 0.93587 and PortScan detections to 35/43, with two false positives. It completes 169 epochs, more than early stopping alone. Its training loss includes active dropout, whereas validation disables it, so a lower validation curve than training is not itself evidence of better generalization.
+- **BatchNorm1d before each hidden ReLU:** validation loss shows large spikes while training loss declines. Even the restored checkpoint has CE 0.09598 and macro-F1 0.88370; PortScan detections fall to 35/43 and false positives rise to 23. It stops at epoch 59 and restores epoch 39, but this configuration gives the weakest validation compromise.
+
+**Decision.** None of the three regularizers improves on early stopping alone at the tested settings. We retain the original five-hidden-layer model with early stopping and no additional regularizer for the Task 6 comparison. This conclusion concerns these settings and this split, rather than every possible decay, dropout or normalization configuration. No directional pretraining prediction was recorded for the smaller-network and regularization trials; we report their comparison purpose without adding retrospective hypotheses.
+
+### Baseline comparison and interim reflection
+
+**[PDF §10] Which change helped most for the least effort?** Early stopping improves macro-F1 and rare-class recall while avoiding 20% of the fixed epoch budget. Removing the final hidden layer is nearly neutral; the three additional regularization trials do not improve the selected reference. Across the lab, sensible scaling and LR made optimization usable, removing Destination Port exposed a shortcut, and class weighting made the rare-attack recall/false-alarm tradeoff explicit. Extra depth and regularization gave smaller or inconsistent gains relative to these fundamental decisions.
+
+**[PDF §10] Did the big network beat the simple baseline?** On validation, Task 6A improves accuracy and macro-F1 over both Task 4 references. Against the unweighted baseline it detects 37/43 rather than 31/43 PortScan flows, with two rather than 21 false positives. Against the weighted baseline it detects fewer (37/43 versus 41/43), but reduces false positives from 122 to two. We therefore improve the overall compromise without dominating rare-class recall. The required final test comparison remains pending; validation results cannot establish that verdict.
 
 ## Logbook and submission
 
-The current logbook lists **19 retained experiments**, including **11 for Task 5**.  Batch 64 and AdamW lr=0.001 both reuse run 12 and are counted once; baseline checkpoint reproduction does not add a new configuration.
+The current logbook lists **25 retained experiments**, including **11 for Task 5** and **six for Task 6**.  Batch 64 and AdamW lr=0.001 both reuse run 12 and are counted once; baseline checkpoint reproduction does not add a new configuration.
 
 - [ ] Report `groupID_lab1.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
 - [ ] Experiment logbook, separate or appendix (outside the page limit).
