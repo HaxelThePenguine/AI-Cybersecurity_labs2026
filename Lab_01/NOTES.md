@@ -303,6 +303,13 @@ Since two of the three optimizers show substantial LR sensitivity, we consider *
 
 **[PDF §10] Large model and overfitting.** Code prepared, not executed in the saved notebook: 256 -> 128 -> 64 -> 32 -> 16, ReLU, unweighted CE, AdamW lr=5e-4, batch 128, exactly 200 epochs and explicit weight_decay=0. We use no dropout, batch normalization or early stopping and keep the final epoch's weights. Loss curves, final-epoch validation and a confusion matrix are included; no Task 6 test evaluation is implemented. The curve prediction has not yet been recorded.
 
+
+Noi ci aspettiamo una curva amolto smooth e a causa del fatto che abbimao 5 layer ci aspettiamo più epoche per una covergenza buona,
+con AdamW ci aspettiamo cmq in poche poche una buona parte di convergenza, lr basso ci porta cmq poco rumore ma più epoche necessarie, e il batch da 128 ci da poco rumore e il fatto che non ci sia eraly stoppong rischia di essere un fattore di inefficenza.
+E per il numero di parametri e deepness e assenza early stopping ci aspettavamio che verso le epoche finali il modello overfitti.  
+
+Trovato, curva davvero smooth come previsto molto meno overfitting di quanto prevetnivato e ciò c'ha stupito,cmq verso la fine un pochino resta visibile e prevediamo che con eraly stopping le perfoamrce possano migliroare con meno epoche.
+
 **[PDF §10] Optimization and final reflection.** Pending: try a smaller model/early stopping first, then weight decay, dropout and batch normalization one change at a time. Compare with the Task 4 references and use the completed logbook to judge performance per unit of effort.
 
 ## Logbook and submission
