@@ -2,7 +2,7 @@
 
 `[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names. OC-SVM = One-Class SVM; LOF = Local Outlier Factor; AE = Autoencoder; FPR = false-positive rate (normal flagged as anomalous). "Anomaly" = binary_label 1 (any attack). Macro-F1 is binary (normal vs anomaly) unless stated otherwise.
 
-**Status:** Task 1 complete. Tasks 2–7 pending.
+**Status:** Task 1 and Task 2A complete. Tasks 2B–7 pending.
 
 **Knowledge assumptions (global):** labels are used only to build training subsets and to evaluate, never as a supervised signal. Preprocessing is fitted on training data only. The test set is used only where a task explicitly asks for it; any validation set is carved out of train.csv.
 
@@ -10,7 +10,7 @@
 
 **[PDF §1.1] Attributes, label distribution and anomaly fraction.**
 
-Both files have 41 features + `label` + `binary_label`: **3 categorical** (`protocol_type`, `service`, `flag`) and **38 numerical**, eight of which are 0/1 indicators (counted as numerical, as the assignment requires). Train has 18,831 connections, test 5,826.
+Both files have 41 features + `label` + `binary_label`: **3 categorical** (`protocol_type`, `service`, `flag`) and **38 numerical**, eight of which take only 0/1 values (counted as numerical, as the assignment requires): five true indicators (`land`, `logged_in`, `root_shell`, `num_shells`, `is_guest_login`) plus `urgent`, `num_outbound_cmds` and `is_host_login`, which are 0/1 only because they are always 0 in train (`urgent` is in fact a counter). Train has 18,831 connections, test 5,826.
 
 | Label | Train | Train % | Test | Test % |
 | --- | --- | --- | --- | --- |
@@ -29,7 +29,7 @@ Both files have 41 features + `label` + `binary_label`: **3 categorical** (`prot
 - **The anomalies are not rare.** At 28.6% in train, "attack" is not the small, isolated minority most unsupervised detectors assume (OC-SVM `nu`, LOF and Isolation Forest contamination, DBSCAN noise). Attacks such as DoS/probe generate many similar connections, so they may form *dense* groups that density/isolation methods treat as normal.
 - **Train and test priors differ strongly.** Contamination rises from 28.6% to 63.1% in test, and dos becomes the largest class. A threshold or `nu` tuned to the training contamination will not match the test prior; metrics that depend on the prior (precision, F1) will shift between train and test even for the same detector.
 - **r2l is very rare in train (181, <1%) and absent in test.** Its test recall cannot be measured; it only affects training contamination and the per-attack analysis on train.
-- **Protocol is informative but not separating:** r2l is TCP-only; probe is the only class where ICMP dominates (827/2,289), but normal also uses all three protocols.
+- **Protocol is informative but not separating:** r2l is TCP-only; probe has the highest ICMP share of any class (827/2,289, 36%), although TCP is still its most frequent protocol (1,147); normal also uses all three protocols.
 
 **[PDF §1.2] Preprocessing of categorical and numerical data.**
 
@@ -58,7 +58,7 @@ We fit one preprocessor on the **full training file** (normal + anomalies) and r
 
 **Train → test shift.** After the train-fitted transformation, the largest mean shifts are `logged_in` (−0.40), `count` (+0.29), `dst_host_count` (+0.27) and `same_srv_rate` (−0.24). This is consistent with the much larger dos share in test: many connections to the same host, not logged in.
 
-**[PDF §1.3] Heatmaps.** Training set, 35 numerical features after Task 1.2 (`log1p` + min-max), so all columns share one [0, 1] colour scale; raw `src_bytes` would flatten the others. Values below are mean / median / std from the heatmaps.
+**[PDF §1.3] Heatmaps.** Training set, 35 numerical features after Task 1.2 (the 38 numerical attributes minus the 3 columns constant in train, which would show the same value in every row) (`log1p` + min-max), so all columns share one [0, 1] colour scale; raw `src_bytes` would flatten the others. Values below are mean / median / std from the heatmaps.
 
 **[PDF §1.3] Which features distinguish specific attack types?**
 
@@ -74,9 +74,23 @@ We fit one preprocessor on the **full training file** (normal + anomalies) and r
 
 ### Task 2A - Normal traffic only
 
-**[PDF §2] Choice of `nu` vs default 0.5 (training FPR, macro-F1).** *Pending.*
+**[PDF §2] Choice of `nu` vs default 0.5 (training FPR, macro-F1).** RBF, `gamma='scale'`, fitted on the 13,448 normal training connections. FPR is computed on normal training data; macro-F1 and recall on the full train.csv (attacks never seen in fitting).
 
-**[PDF §2] Why clean normal data helps; what `nu` controls; can it be zero; effect on FPR.** *Pending.*
+| Run | `nu` | Train FPR | Macro-F1 | dos recall | probe recall | r2l recall | FP | FN | SV | Fit s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.01 | 0.0104 | 0.9367 | 0.910 | 0.844 | 0.017 | 140 | 796 | 153 | 0.3 |
+| 2 | 0.5 | 0.5000 | 0.6367 | 0.974 | 1.000 | 0.994 | 6,724 | 78 | 6,726 | 13.5 |
+
+We keep **`nu = 0.01`** (run 1). The default flags half of normal traffic; its higher recall does not compensate.
+
+**[PDF §2] Why clean normal data helps; what `nu` controls; can it be zero; effect on FPR.**
+
+- **Clean data:** the OC-SVM learns the support of whatever it is given. With normal data only, the boundary describes normal traffic, and every point outside is by construction a false alarm, so the accepted FPR can be set directly. Attacks in training would be enclosed by the boundary (Task 2B).
+- **`nu`:** upper bound on the fraction of training points outside the boundary and lower bound on the fraction of support vectors. Both hold here: FPR 0.0104 / 0.5000, SV 1.1% / 50.0%.
+- **Choice:** with clean data, `nu` ≈ accepted training FPR. We accept ~1% (~134 connections) as slack for rare but legitimate normal patterns (rare services, sparse indicators from Task 1).
+- **Zero:** not allowed (sklearn requires `nu ∈ (0, 1]`). As `nu → 0` the boundary must enclose every training point, noise included, and becomes loose around attacks.
+- **Effect on FPR:** training FPR tracks `nu` almost exactly (0.0104 vs 0.01; 0.5000 vs 0.5).
+- **What is missed (run 1):** R2L is almost entirely inside the normal region (3/181 detected), as expected from Task 1.3. 9% of DoS and 16% of probe are also missed. With `nu = 0.5` R2L is caught (0.994) only because the boundary shrinks to the densest half of normal traffic.
 
 ### Task 2B - Normal + anomalous traffic (contamination 0/10/20/50/100%)
 
@@ -158,7 +172,7 @@ We fit one preprocessor on the **full training file** (normal + anomalies) and r
 
 ## Logbook and submission
 
-The current logbook lists **0 retained runs** (budget ~25).
+The current logbook lists **2 retained runs** (budget ~25).
 
 - [ ] Report `groupID_lab3.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
 - [ ] Experiment logbook, separate or appendix (outside the page limit).
