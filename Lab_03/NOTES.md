@@ -2,7 +2,7 @@
 
 `[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names. OC-SVM = One-Class SVM; LOF = Local Outlier Factor; AE = Autoencoder; FPR = false-positive rate (normal flagged as anomalous). "Anomaly" = binary_label 1 (any attack). Macro-F1 is binary (normal vs anomaly) unless stated otherwise.
 
-**Status:** Task 1.1 complete. Tasks 1.2–7 pending.
+**Status:** Task 1 complete. Tasks 2–7 pending.
 
 **Knowledge assumptions (global):** labels are used only to build training subsets and to evaluate, never as a supervised signal. Preprocessing is fitted on training data only. The test set is used only where a task explicitly asks for it; any validation set is carved out of train.csv.
 
@@ -31,13 +31,44 @@ Both files have 41 features + `label` + `binary_label`: **3 categorical** (`prot
 - **r2l is very rare in train (181, <1%) and absent in test.** Its test recall cannot be measured; it only affects training contamination and the per-attack analysis on train.
 - **Protocol is informative but not separating:** r2l is TCP-only; probe is the only class where ICMP dominates (827/2,289), but normal also uses all three protocols.
 
-**[PDF §1.2] Preprocessing of categorical and numerical data.** *Pending.*
+**[PDF §1.2] Preprocessing of categorical and numerical data.**
 
-**[PDF §1.2] Where preprocessing parameters are estimated from.** *Pending.*
+All our detectors (OC-SVM with RBF kernel, LOF, K-Means, DBSCAN, AE reconstruction error) depend on distances, so we aim for a space where no single feature dominates only because of its units. We keep every row, including the conflicting pair. The pipeline outputs **106 features: 35 numerical + 71 one-hot**.
 
-**[PDF §1.3] Mean / std / median heatmaps per attack label.** *Pending.*
+| Step | Columns | Choice | Reason |
+| --- | --- | --- | --- |
+| Drop constant columns | `urgent`, `num_outbound_cmds`, `is_host_login` | Removed | Constant in train: no information, zero-variance dimensions |
+| Categorical | `protocol_type` (3), `service` (65), `flag` (11) | One-hot; `service` levels with < 10 training rows merged into one *infrequent* column → 3 + 57 + 11 columns | No natural order, so integer codes would invent distances. The 9 rarest services (≤ 8 rows each) would otherwise add near-empty dimensions. |
+| Unseen categories | `tftp_u`, `tim_i` (test only) | Mapped to the *infrequent* service column | They behave like other rare services rather than becoming an all-zero vector with no `service` information |
+| Heavy-tailed counters | 13 non-rate, non-binary features with training skewness > 2: `duration`, `src_bytes`, `dst_bytes`, `wrong_fragment`, `hot`, `num_failed_logins`, `num_compromised`, `su_attempted`, `num_root`, `num_file_creations`, `num_access_files`, `count`, `srv_count` | `log1p`, then min-max | Compresses extreme tails (`src_bytes` skew 136, max 3.8e8 vs median 207), so a few huge transfers do not set the whole scale |
+| Other numerical | `*_rate`, 0/1 indicators, `dst_host_count`, `dst_host_srv_count` (22) | Min-max only | Rates and indicators are already in [0, 1]. The two `dst_host` counters are bounded at 255 and not right-skewed (skew -0.43 / -0.27), so `log1p` would only compress their informative high end. |
 
-**[PDF §1.3] Which features distinguish specific attack types?** *Pending.*
+**Why min-max and not StandardScaler.** We first used StandardScaler and rejected it. Many features are almost always 0, so dividing by their tiny standard deviation inflates rare non-zero values: `land` (1 in ~18.8k training rows) reaches **137** standard deviations, `num_failed_logins` 66 and `num_shells` 49. Under Euclidean/RBF distances, any row with one such flag would be an extreme outlier, regardless of the other 100 features. With `log1p` + min-max, every feature lies in [0, 1] on train, the same range as the rates and the one-hot columns.
+
+**Trade-offs.**
+- Min-max is sensitive to the training maximum. `log1p` reduces this for counters.
+- Only **7 test values** fall outside [0, 1]: `duration` max 1.02, `hot` 1.06, `num_file_creations` 1.24, and `count`/`srv_count` at −0.125 when the test value is 0 (train minimum is 1). We do not clip them: values outside the training range are information an anomaly detector should see.
+- Each one-hot change moves the squared Euclidean distance by 2, comparable to a full-range numerical change. So `service`/`flag` carry substantial weight in distances. We keep this weighting deliberately: `service` and `flag` are domain-relevant. We will revisit it if a detector is dominated by service identity.
+
+**[PDF §1.2] Where preprocessing parameters are estimated from.**
+
+All parameters are estimated on **train.csv only**: constant columns, skewness rule, category levels and infrequent set, `log1p`/min-max ranges. They are then applied unchanged to test, so the test set does not influence the representation we evaluate on. Labels are never passed to the preprocessor.
+
+We fit one preprocessor on the **full training file** (normal + anomalies) and reuse it for all tasks. This is the data an unsupervised detector would have, and a shared feature space keeps methods comparable. Normal-only scenarios (OC-SVM Task 2A, normal-only AE, PCA) therefore see min-max ranges that also cover training attacks. We consider this acceptable because the transformation uses no label. The alternative, fitting on normal traffic only, would turn attacks with extreme values into values outside [0, 1]. Any validation split needed later (Task 6) will be carved from train.csv; it shares these unsupervised statistics, but no labels or test data.
+
+**Train → test shift.** After the train-fitted transformation, the largest mean shifts are `logged_in` (−0.40), `count` (+0.29), `dst_host_count` (+0.27) and `same_srv_rate` (−0.24). This is consistent with the much larger dos share in test: many connections to the same host, not logged in.
+
+**[PDF §1.3] Heatmaps.** Training set, 35 numerical features after Task 1.2 (`log1p` + min-max), so all columns share one [0, 1] colour scale; raw `src_bytes` would flatten the others. Values below are mean / median / std from the heatmaps.
+
+**[PDF §1.3] Which features distinguish specific attack types?**
+
+- **Normal:** logged in (median 1), non-zero bytes (`src_bytes` median 0.28, `dst_bytes` 0.39), same service and host-service counters at their maximum (`same_srv_rate`, `dst_host_srv_count`, `dst_host_same_srv_rate` medians 1). Error rates ≈ 0.
+- **DoS:** many connections to the same host (`count` mean 0.74 vs 0.23 normal; `dst_host_count` median 1.00), no payload (bytes median 0), not logged in (mean 0.07), low `same_srv_rate` (median 0.11). SYN-error rates (`serror_rate`, `dst_host_serror_rate`…) have median 1 but mean 0.57 and std 0.49: DoS is **bimodal**, SYN-flood connections (serror = 1) plus a second group with serror = 0. `wrong_fragment` is non-zero only for DoS (mean 0.06, std 0.25).
+- **Probe:** many different services/ports (`dst_host_diff_srv_rate` 0.40 vs 0.04; `diff_srv_rate` 0.25 vs 0.03), same source port (`dst_host_same_src_port_rate` median 1.00 vs 0.01), few connections per destination service (`dst_host_srv_count` median 0.01 vs 1.00), almost no bytes, not logged in. REJ-error rates have mean 0.44 but median 0 and std ≈ 0.5, and most traffic features have std 0.4–0.5: probe is the **most heterogeneous** class (e.g. port scans vs host sweeps).
+- **R2L:** the class **closest to normal**: logged in (1.00), normal-like `src_bytes` (median 0.29 vs 0.28), `same_srv_rate` and `dst_host_same_srv_rate` median 1. It differs on content features (`hot` mean 0.26 vs 0.01, `is_guest_login` 0.31 vs 0.01) and on host statistics (`dst_host_count` median 0.03, `dst_host_same_src_port_rate` median 1.00). Std of `hot` / `is_guest_login` ≈ 0.35–0.47: only part of R2L shows these signs.
+- **Not discriminative:** `num_failed_logins`, `num_compromised`, `su_attempted`, `num_root`, `num_file_creations`, `num_access_files`, `root_shell`, `num_shells`, `land` are ≈ 0 in every class.
+
+**Expectations for later tasks.** DoS and probe differ from normal mainly on traffic features and should be detectable by distance-based methods. DoS is however numerous and made of repeated, near-identical connections (zero bytes, same host, serror = 1), so it may form **dense groups** that LOF/DBSCAN treat as normal. R2L looks most like normal and is expected to be missed most often (only measurable on train). Probe's high variability may produce isolated points, easy for LOF/Isolation Forest.
 
 ## Task 2 - One-Class SVM: impact of the anomalies
 
