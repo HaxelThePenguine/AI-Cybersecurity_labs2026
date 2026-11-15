@@ -2,7 +2,23 @@
 
 `[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names. CE means cross-entropy; PS means PortScan; PS FP counts all non-PortScan flows predicted as PortScan. Elsewhere, unqualified FP has the same meaning; the extra test comparison explicitly labels binary false alarms as Benign FP.
 
-**Status:** Tasks 2-5 and all six current Task 6 validation configurations are executed, including the smaller fixed-epoch Task 6A bis replacement. We retain the original Task 6A network with early stopping and no additional regularizer. The final test comparison and the extra comparison of all 25 logged models are executed; final conclusions remain to be written.
+**Status:** Tasks 2-5 and all six current Task 6 validation configurations are executed, including the smaller fixed-epoch Task 6A bis replacement. We retain the original Task 6A network with early stopping and no additional regularizer. The final test comparison and the extra comparison of all 25 logged models are executed; the final discussion below brings these results together.
+
+## How we interpret detection quality and model choices
+
+We distinguish **raising an attack alarm** from **identifying the correct attack type**. Attack FN counts malicious flows predicted as Benign; Benign FP counts benign flows predicted as any attack. PortScan recall instead measures correct PortScan identification: a PortScan predicted as DoS is a PortScan class FN, but still raises an attack alarm. PS FP counts every non-PortScan flow predicted as PortScan, including other attack types; it is not the same as Benign FP.
+
+**Our threat model.** We give particular importance to catching rare PortScan activity: only 199 training examples remain, so a high aggregate score could hide weak recognition of this class. We prefer more alerts to investigate over overlooking rare attack activity, and accept a higher false-positive burden for that coverage. Scarcity motivates this focus; it does not prove that sample count alone causes every error. Higher observed recall reduces missed class identifications on this split, without guaranteeing detection of all future attacks. False alarms still consume analyst attention; we have not assigned a numerical FN/FP cost ratio or a false-alarm ceiling. We therefore state the concrete cost of each choice rather than claim a single globally best detector. Accuracy and macro-F1 summarize four-class classification; neither alone measures how many attacks pass as Benign.
+
+**Meaning of selected.** Selection is specific to each experiment: Task 2C uses validation macro-F1; Task 4 retains weighting for its PortScan recall gain despite poorer macro-F1; Task 5A ranks only deeper candidates by PortScan recall, then macro-F1 on ties. Tasks 5B/5C weigh validation classification results against PortScan false positives, and Task 6 retains early stopping for its validation CE, macro-F1 and PortScan results. These choices do not all maximize the same metric. The binary Attack FN/Benign FP comparison was added in the extra section to interpret the fixed models; it did not retrospectively determine earlier selections. Selected thus means our task-specific validation reference, not the model with the fewest missed alarms across the whole book.
+
+## Shared limits of interpretation
+
+Each pipeline is evaluated on one fixed stratified split with seed 42. The port-free validation and test sets each contain only 43 PortScan flows (training has 199): one classification changes recall by 2.33 percentage points, so small differences do not establish a stable ranking. Removing Destination Port and deduplicating changes both class prevalence and the evaluated population; with-port versus port-free results therefore combine a feature change with a population change. Deduplication includes the label, leaving some identical inputs with conflicting labels across partitions: the port-free data have 18 shared input patterns between training/validation, 20 between training/test and five between validation/test. This limits input-pattern independence and does not by itself prove inflated scores. These limits bound generalization; they do not identify the cause of a particular negative result. We interpret each comparison using its observed metrics and controls.
+
+## Device selection and saved results
+
+We set `DEVICE` once in the notebook: `auto` tries CUDA, then XPU, then CPU; `cpu`, `cuda` and `xpu` select a backend explicitly when available in the installed PyTorch. Every task uses the same device for its model, input batches and class weights. After changing the selector, we restart the kernel and Run All to rebuild models and optimizers together. The recorded lab results and final discussion refer to the existing CPU executions; the selector applies to subsequent runs. We keep seeds and strict deterministic algorithms on CPU, while GPU runs allow faster algorithms and can give different scores or stopping epochs. Device choice alone is not a measured speedup for these small networks. PyTorch documents [Intel XPU execution](https://docs.pytorch.org/docs/stable/notes/get_start_xpu.html) and [reproducibility limits](https://docs.pytorch.org/docs/stable/notes/randomness.html).
 
 ## Task 1 - Preprocessing
 
@@ -141,7 +157,7 @@ Before training, we expected ReLU to outperform Linear. Both start from the same
 
 ReLU confirms our prediction (macro-F1 0.95135 versus 0.87240). Linear particularly loses Brute Force recall and PortScan precision. ReLU restores epoch 196/200; Linear restores 55/75. Their times are **73.18 s** and **26.29 s**, respectively, not a combined time.
 
-We choose configurations/activations by validation macro-F1 and checkpoints by validation loss. Using test scores to choose would turn test into tuning data; we evaluate the selected ReLU model there.
+For Task 2C, we choose the activation by validation macro-F1 and checkpoints by validation loss; later task-specific choices are explained separately. Using test scores to choose would turn test into tuning data; we evaluate the selected ReLU model there.
 
 ## Task 3 - When a feature biases the model
 
@@ -213,6 +229,8 @@ We predicted slightly lower accuracy, higher macro-F1 and higher PortScan recall
 | PortScan recall | 0.7209 | 0.9535 |
 | PortScan F1 | 0.6526 | 0.3981 |
 | PortScan detected | 31/43 | 41/43 |
+| PortScan class FN | 12/43 | 2/43 |
+| PortScan false positives (all non-PortScan classes) | 21 | 122 |
 | Ordinary cross-entropy | 0.10506 | 0.20914 |
 
 | Class | Unweighted F1 | Weighted F1 |
@@ -222,24 +240,24 @@ We predicted slightly lower accuracy, higher macro-F1 and higher PortScan recall
 | DoS Hulk | 0.9419 | 0.8849 |
 | PortScan | 0.6526 | 0.3981 |
 
-The weights recover ten more PortScan flows but increase false PortScan predictions from **21 to 122**. Precision loss outweighs the recall gain in macro-F1. Run 7 restores epoch 129/149 (43.88 s); run 8 restores 117/137 (45.55 s). Weighted checkpoint CE is 0.18363; the comparison table uses ordinary CE for both models.
+The weights correctly identify ten more PortScan flows (31/43 -> 41/43), reducing PortScan class FN from 12 to 2, but increase PS FP from **21 to 122**: **101 additional non-PortScan flows are classified as PortScan**. These PS FP can include other attacks and are not all necessarily benign false alarms. Likewise, the ten recovered class detections do not by themselves prove ten additional attack alarms: some original errors may have named another attack type. All four class F1 scores fall, so this is a recall-oriented tradeoff with a substantial classification cost, not an overall improvement. Run 7 restores epoch 129/149 (43.88 s); run 8 restores 117/137 (45.55 s). Weighted checkpoint CE is 0.18363; the comparison table uses ordinary CE for both models.
 
 **[PDF §8] Which metric should we optimize?**
 
-We prioritize **PortScan recall**, accepting lower precision to miss fewer rare attacks. Between accuracy and macro-F1, macro-F1 better exposes minority-class errors; we report it alongside recall and false alarms. **Run 8's weighted loss is retained for Task 5**; run 7 remains the unweighted reference. At this stage, the port-free test stays reserved for Task 5D.
+For this Task 4 choice, our threat model prioritizes **correct identification of the rare PortScan class**: overlooking rare attack activity is more serious to us than raising additional alerts for investigation. With only 199 PortScan training examples, overall accuracy alone could hide weak class recognition. We therefore accept the observed precision loss and 101 extra PS FP to identify ten additional PortScan flows. We retain run 8's weighted loss for Task 5 to investigate whether deeper models can reduce that cost while preserving much of the recall gain. The unweighted run 7 remains the stronger reference for accuracy and macro-F1. This is a qualitative preference, with no numerical error-cost ratio or FP ceiling; higher recall is not a guarantee of catching all attacks, nor proof that weighting is the best binary detector. Macro-F1 exposes minority-class classification errors better than accuracy alone, but neither replaces Attack FN when the question is missed attack alarms. At this stage, the port-free test stays reserved for Task 5D.
 
 ## Task 5 - Varying the hyperparameters
 
 ### Task 5A - Weighted depth comparison
 
-**[PDF §9.1] Choice and predictions.** We retain Task 4B's balanced training-only weights: rare-attack recall matters more to us than precision. All four runs use ReLU, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42; split/scaler are unchanged.
+**[PDF §9.1] Choice and predictions.** We carry forward Task 4B's balanced training-only weights because our threat model favors coverage of rare PortScan activity and tolerates more alerts for investigation. Weighting improves correct PortScan identification but worsens macro-F1 and produces more PS FP; Task 5 explores this tradeoff. All four runs use ReLU, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42; split/scaler are unchanged.
 
 - **Run 9, 64 -> 64:** an extra nonlinear stage should retain recall and reduce false alarms.
 - **Run 10, 64 -> 64 -> 32:** a compact third stage may improve selectivity without losing rare flows.
 - **Run 11, 64 -> 128 -> 32:** middle-layer expansion should capture richer interactions than run 10.
 - **Run 12, 64 -> 128 -> 32 -> 16:** our exploratory comparison suggests extra compression may reduce false alarms at similar recall.
 
-We select by PortScan recall, then macro-F1 when recall ties. Checkpoints minimize weighted validation CE; reported ordinary CE remains separate. Superseded unweighted trials are omitted from the current logbook.
+Within the four deeper candidates, we select by PortScan recall, then macro-F1 when recall ties; this is not a global ranking of all models by Attack FN. Checkpoints minimize weighted validation CE; reported ordinary CE remains separate. Superseded unweighted trials are omitted from the current logbook.
 
 | Run | Hidden layers | Accuracy | Macro-F1 | PS precision | PS recall | PS F1 | TP/43 | FP | Train + val s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -249,11 +267,11 @@ We select by PortScan recall, then macro-F1 when recall ties. Checkpoints minimi
 | 11 | 64-128-32 | 0.94243 | 0.82179 | 0.3478 | 0.9302 | 0.5063 | 40 | 75 | 25.55 |
 | 12 | 64-128-32-16 | 0.94214 | 0.83696 | 0.4082 | 0.9302 | 0.5674 | 40 | 58 | 35.04 |
 
-**[PDF §9.1] Does depth help?** We select **run 12, 64-128-32-16**, among the deeper candidates: PortScan recall 0.9302 (40/43), precision 0.4082, macro-F1 0.83696; 58 false PortScan predictions. Selection uses recall first, macro-F1 on ties.
+**[PDF §9.1] Does depth help?** We select **run 12, 64-128-32-16**, among the deeper candidates: PortScan recall 0.9302 (40/43), precision 0.4082, macro-F1 0.83696; 58 false PortScan predictions. This ranking applies within the deeper family and uses PortScan recall first, macro-F1 on ties; it does not supersede the simple reference on every metric.
 
-The weighted single-layer baseline still has higher PortScan recall (41/43 versus 40/43); depth improves precision and macro-F1, but has not beaten it on our primary metric. Added layers do not guarantee higher recall; parameter count also changes. If a single-layer model stays competitive, this small tabular task does not justify depth by itself.
+The weighted single-layer baseline still has higher PortScan recall (41/43 versus 40/43); the selected deeper candidate improves precision and macro-F1, but has not beaten it on the PortScan recall criterion used in this depth comparison. Added layers do not guarantee higher recall; parameter count also changes. If a single-layer model stays competitive, this small tabular task does not justify depth by itself.
 
-The compact third stage helps (9→10); widening it does not (10→11); the fourth stage reduces false alarms at unchanged recall (11→12).
+Within this split, moving from 64-64 to 64-64-32 improves the reported classification metrics; widening the middle layer to 128 does not improve them. Adding the final 16-unit stage to 64-128-32 lowers PS FP at unchanged PortScan recall. These are observations for the tested widths and seed, subject to the shared limits above.
 
 The saved execution reports 16 CPU threads; the code leaves PyTorch's thread count at its default. The current logbook retains these four weighted depth experiments. Timing includes epoch validation; comparisons use validation only.
 
@@ -277,9 +295,11 @@ The timing prediction holds: batch 16 performs more updates and takes 1.385 s/ep
 
 **[PDF §9.3] What did we find?** LR strongly changes SGD's behavior: moving from 0.001 to 0.01 raises PortScan recall from 90.70% to 100%, but lowers precision from 21.55% to 16.23%. AdamW is also sensitive: the same increase drops accuracy from 94.21% to 89.11% and macro-F1 from 0.8370 to 0.7904.
 
-SGD+momentum is more stable than AdamW in accuracy and macro-F1 across these two learning rates (changes of 1.16 and 0.14 percentage points), consistent with momentum smoothing updates. Its PortScan recall still changes by 9.30 points, so this stability does not hold for every metric.
+SGD+momentum shows smaller changes than AdamW in final validation accuracy and macro-F1 across these two learning rates (1.16 and 0.14 percentage points). Its PortScan recall still changes by 9.30 points. Small changes in final metrics do not by themselves demonstrate smoother optimization trajectories or stability across seeds.
 
-Since two of the three optimizers show substantial LR sensitivity, we consider **LR the first tuning priority**, while optimizer choice remains crucial. This practical conclusion does not establish that LR dominates every metric. We keep **AdamW lr=0.001**: 40/43 PortScan detections and 58 false positives, versus 43/43 and 203 for momentum SGD at 0.001. It gives us high recall without excessive false alarms. SGD's L2 and AdamW's decoupled decay also limit isolation of the optimizer effect.
+**Conclusion.** Performance depends on the **optimizer-LR combination**; within the tested interval, we find no general predominance of LR. At LR 0.001, AdamW's validation macro-F1 exceeds SGD's by **9.09 percentage points** (0.83696 versus 0.74602), whereas changing AdamW's LR from 0.001 to 0.01 lowers macro-F1 by **4.66 points** (0.83696 -> 0.79040). For macro-F1 in this comparison, the optimizer difference is larger. The small set of configurations supports choosing among these tested combinations rather than a universal optimizer/LR rule.
+
+**Retained combination.** We keep **AdamW lr=0.001**: 40/43 PortScan detections and 58 false positives, versus 43/43 and 203 for momentum SGD at 0.001. This accepts three fewer correctly identified PortScan flows in exchange for 145 fewer PS FP on validation. It is a qualitative classification tradeoff, not the result of the recall-first ranking used within Task 5A or a predefined false-alarm limit. SGD's L2 and AdamW's decoupled decay also limit isolation of the optimizer effect. SGD at LR 0.001 reaches its lowest validation loss at the 200-epoch limit, so this comparison also reflects the available optimization budget.
 
 ### Task 5D - Test verdict
 
@@ -297,13 +317,29 @@ Since two of the three optimizers show substantial LR sensitivity, we consider *
 | PS false positives | 160 | 82 |
 | Parameters | 1,284 | 14,068 |
 
-**Q: Did complexity beat the baseline, and was it worth the runs?** The deeper model improves most reported test metrics and reduces PortScan false positives from 160 to 82, but detects 41/43 flows instead of 43/43. We retain it for this overall tradeoff, with 14,068 parameters versus 1,284 in the weighted baseline. The seven additional batch/optimizer experiments confirmed the 5A candidate without improving it. Task 5 therefore uses 11 retained experiments against the suggested ~10; three earlier unweighted trials are omitted. Baseline checkpoint reproduction does not add a new configuration. Settings and checkpoints were fixed using validation, without retuning on test. Full test reports and confusion matrices are in the notebook.
+**Additional simple reference.** The executed extra comparison also evaluates the unweighted Task 4 model on the same port-free test; including it gives the following context without changing the validation-based selection.
+
+| Model | Accuracy | Macro-F1 | Ordinary CE | Attack FN | Benign FP |
+| --- | --- | --- | --- | --- | --- |
+| Task 4 - unweighted | 0.95966 | 0.85443 | 0.11314 | 76 | 49 |
+| Task 4B - weighted | 0.89973 | 0.75237 | 0.24536 | 32 | 266 |
+| Task 5D - selected deeper | 0.93474 | 0.81658 | 0.18866 | 23 | 178 |
+
+The unweighted simple model has higher accuracy and macro-F1 and lower ordinary CE than the selected deeper model, but misses 76 rather than 23 attacks at the binary alarm level. The deeper model raises 178 rather than 49 benign false alarms. Against the weighted simple reference, the deeper model reduces both Attack FN (32 -> 23) and Benign FP (266 -> 178), while its PortScan class recall remains lower. The selected deeper configuration improves specific metrics relative to the weighted reference, while both simple references remain relevant to the metric-specific verdict.
+
+**Q: Did complexity beat the baseline, and was it worth the runs?** Against the weighted reference, the deeper model improves accuracy and macro-F1 and reduces PortScan false positives from 160 to 82, but correctly identifies 41/43 PortScan flows instead of 43/43. Against the unweighted reference, it gives lower accuracy/macro-F1 and lower Attack FN at the cost of more benign false alarms. These test results describe the tradeoff of the model already selected on validation, with 14,068 parameters versus 1,284 in the weighted baseline; they do not establish a globally best detector or change our selection. The seven additional batch/optimizer experiments did not replace the 5A candidate under our qualitative validation recall/PS FP compromise; some alternatives achieve higher PortScan recall with more PS FP. Task 5 therefore uses 11 retained experiments against the suggested ~10; three earlier unweighted trials are omitted. Baseline checkpoint reproduction does not add a new configuration. Settings and checkpoints were fixed using validation, without retuning on test. Full test reports and confusion matrices are in the notebook.
 
 ## Task 6 - Optimizations
 
 **[PDF §10] Setup and prediction.** We use the port-free data, ReLU, unweighted CE, AdamW lr=5e-4, batch 128 and seed 42. The initial network has hidden sizes 256 -> 128 -> 64 -> 32 -> 16 and 47,924 parameters, weight_decay=0, no dropout or batch normalization, and 200 fixed epochs with final-epoch weights. Before training, we expected a fairly smooth decline, substantial early learning and possible late overfitting.
 
 **Where we see overfitting.** The curves decline together initially, then flatten with late validation fluctuations. From epoch 140 to 200, training CE falls from 0.06258 to 0.05941 while validation CE rises from 0.06726 to 0.07374. This supports modest late overfitting rather than a large, sustained divergence.
+
+### Which Task 6 comparisons answer which question?
+
+- **Task 6 -> Task 6A:** same original network; the change is early stopping with restoration of the minimum-validation-CE checkpoint.
+- **Task 6 -> Task 6A bis:** both use 200 fixed epochs and final weights; the change is removal of the final 16-unit hidden layer.
+- **Task 6A versus Task 6A bis:** original network with early stopping versus the smaller fixed-epoch network; this compares two alternative interventions rather than isolating architecture alone.
 
 ### Saved validation results
 
@@ -328,9 +364,11 @@ All six current Task 6 configurations are executed; the smaller fixed-epoch mode
 
 **Controlled change.** We remove only the final 16-unit hidden layer from the initial fixed-epoch Task 6 model, giving 256 -> 128 -> 64 -> 32 with 47,460 parameters. We retain unweighted CE, AdamW lr=5e-4, weight_decay=0, batch 128 and seed 42. We train for exactly 200 epochs with no dropout, batch normalization, early stopping or best-checkpoint restoration; final-epoch weights are evaluated.
 
-**Comparison.** We compare the original network with early stopping against the smaller network with fixed-epoch training. These are two alternative interventions from the same initial setup.
+**Controlled reference.** To assess size reduction, we compare Task 6A bis with the original Task 6 network: both train for 200 fixed epochs and retain final weights. We also compare 6A bis with 6A to assess the two alternative interventions.
 
-**Result.** We complete 200 epochs and evaluate the final weights: validation CE 0.07321, accuracy 0.97656 and macro-F1 0.89968. We detect 25/43 PortScan flows (58.14% recall), with 18 class false negatives and 1 false positive. Compared with the original early-stopping model, macro-F1 falls from 0.94799 and detections from 37/43; PortScan false positives fall from two to one. We remove only 464 parameters (0.97%) and complete 200 rather than 160 epochs. For this split and seed, early stopping gives the better validation compromise; this compares two alternative interventions and does not isolate architecture alone.
+**Size reduction at fixed training.** The smaller model completes 200 epochs: validation CE 0.07321, accuracy 0.97656 and macro-F1 0.89968. Relative to the original fixed-epoch model, CE is slightly lower (0.07374 -> 0.07321), but accuracy falls (0.97834 -> 0.97656), macro-F1 falls (0.92934 -> 0.89968), and correct PortScan identifications fall from 32/43 to 25/43. PS FP falls from two to one. This removes **464 parameters, only 0.97%** (47,924 -> 47,460), so it is a small architectural change rather than a substantial compression experiment. On this split, this specific reduction does not improve the classification compromise.
+
+**Alternative intervention: early stopping.** The original network with early stopping has validation macro-F1 0.94799 and 37/43 PortScan identifications, versus 0.89968 and 25/43 for the smaller fixed-epoch model; PS FP is two versus one. Early stopping completes 160 rather than 200 epochs and gives the stronger validation CE/macro-F1/recall compromise of these two alternatives. This comparison changes both architecture and stopping and cannot attribute the difference to size alone.
 
 ### Task 6B - Mutually exclusive regularizers
 
@@ -340,13 +378,13 @@ All six current Task 6 configurations are executed; the smaller fixed-epoch mode
 - **Dropout 0.2 after each hidden ReLU:** macro-F1 falls to 0.93587 and PortScan detections to 35/43, with two false positives. It completes 169 epochs, more than early stopping alone. Its training loss includes active dropout, whereas validation disables it, so a lower validation curve than training is not itself evidence of better generalization.
 - **BatchNorm1d before each hidden ReLU:** validation loss shows large spikes while training loss declines. Even the restored checkpoint has CE 0.09598 and macro-F1 0.88370; PortScan detections fall to 35/43 and false positives rise to 23. It stops at epoch 59 and restores epoch 39, but this configuration gives the weakest validation compromise.
 
-**Decision.** None of the three regularizers improves on early stopping alone at the tested settings. We retain the original five-hidden-layer model with early stopping and no additional regularizer for the Task 6 comparison. This conclusion concerns these settings and this split, rather than every possible decay, dropout or normalization configuration. No directional pretraining prediction was recorded for the regularization trials; we report their comparison purpose without adding retrospective hypotheses.
+**Decision.** None of the three regularizers improves the validation CE/macro-F1 compromise of early stopping alone at the tested settings. We retain the original five-hidden-layer model with early stopping and no additional regularizer for the Task 6 comparison. This conclusion concerns these settings and this split, rather than every possible decay, dropout or normalization configuration. No directional pretraining prediction was recorded for the regularization trials; we report their comparison purpose without adding retrospective hypotheses.
 
-### Baseline comparison and interim reflection
+### Baseline comparison and reflection
 
-**[PDF §10] Which change helped most for the least effort?** Early stopping improves macro-F1 and rare-class recall while avoiding 20% of the fixed epoch budget. The smaller fixed-epoch alternative reduces parameters by only 0.97% and gives lower validation macro-F1 and PortScan recall; the three additional regularization trials do not improve the selected reference. Across the lab, sensible scaling and LR made optimization usable, removing Destination Port exposed a shortcut, and class weighting made the rare-attack recall/false-alarm tradeoff explicit. Extra depth and regularization gave smaller or inconsistent gains relative to these fundamental decisions.
+**[PDF §10] Which change helped most for the least effort?** Against the initial fixed-epoch model, early stopping improves validation CE, macro-F1 and PortScan recall while avoiding 20% of the epoch budget. Against that same fixed-epoch reference, removing the final hidden layer reduces parameters by only 0.97% and gives lower validation macro-F1 and PortScan recall; its negative result concerns this small modification. The three additional regularization trials do not improve the selected validation reference. The test comparison below shows a metric-dependent early-stopping tradeoff. Across the lab, sensible scaling and LR made optimization usable, removing Destination Port exposed a shortcut, and class weighting made the rare-attack recall/false-alarm tradeoff explicit. Extra depth and regularization gave smaller or inconsistent gains relative to these fundamental decisions.
 
-**[PDF §10] Did the big network beat the simple baseline?** On validation, Task 6A improves accuracy and macro-F1 over both Task 4 references. Against the unweighted baseline it detects 37/43 rather than 31/43 PortScan flows, with two rather than 21 false positives. Against the weighted baseline it detects fewer (37/43 versus 41/43), but reduces false positives from 122 to two. We therefore improve the overall compromise without dominating rare-class recall. The final test results are recorded below; the final conclusions remain to be written.
+**[PDF §10] Did the big network beat the simple baseline?** On validation, Task 6A improves accuracy and macro-F1 over both Task 4 references. Against the unweighted baseline it detects 37/43 rather than 31/43 PortScan flows, with two rather than 21 false positives. Against the weighted baseline it detects fewer (37/43 versus 41/43), but reduces false positives from 122 to two. We therefore obtain a different validation classification compromise: better macro-F1 and fewer PS FP, without dominating PortScan recall or establishing the fewest binary missed alarms across all models. The final test results are recorded below; the final discussion below brings these results together.
 
 ### Final test comparison - numerical results
 
@@ -365,7 +403,20 @@ All six current Task 6 configurations are executed; the smaller fixed-epoch mode
 | PS false positives | 160 | 1 |
 | Parameters | 1,284 | 47,924 |
 
-The notebook contains the executed classification reports, per-class comparison and confusion matrices. This inference adds no training experiment; the logbook contains 25 current executed configurations, including the smaller fixed-epoch replacement. Our conclusions for this comparison remain to be written.
+**Early stopping versus fixed epochs on test.** The executed extra comparison provides a separate check of the original architecture's stopping rule:
+
+| Test metric | Original Task 6, fixed 200 epochs | Original Task 6A, early stopping |
+| --- | --- | --- |
+| Accuracy | 0.97805 | 0.97686 |
+| Macro-F1 | 0.93740 | 0.94420 |
+| Ordinary CE | 0.06101 | 0.06560 |
+| Attack FN | 50 | 49 |
+| Benign FP | 20 | 27 |
+| PS class FN /43 | 10 | 8 |
+
+Early stopping improves test macro-F1 (0.93740 -> 0.94420) and reduces Attack FN slightly (50 -> 49), while accuracy falls (0.97805 -> 0.97686), ordinary CE rises (0.06101 -> 0.06560), and Benign FP rises (20 -> 27). It is better on macro-F1 and PortScan class recall here, not uniformly on all test metrics. We keep the selection made on validation and report this tradeoff without retuning on test. Against the weighted Task 4B reference, Task 6A improves accuracy/macro-F1 and reduces Benign FP (266 -> 27), but has more Attack FN (32 -> 49) and lower PortScan recall.
+
+The notebook contains the executed classification reports, per-class comparison and confusion matrices. This inference adds no training experiment; the logbook contains 25 current executed configurations, including the smaller fixed-epoch replacement. The final discussion below relates this comparison to our threat model and experimental effort.
 
 ## Extra - All logged models on the test set
 
@@ -373,9 +424,23 @@ We include all 25 current configurations in two overview figures: six with Desti
 
 **False negatives.** Attack FN counts malicious flows classified as Benign; Attack FNR divides this count by actual attacks. BF/DoS/PS FN also includes confusion with another attack type, which still triggers an attack alarm. Benign FP counts benign flows classified as any attack; PS FP instead includes any non-PortScan flow classified as PortScan. We keep these definitions separate in the tables and plots.
 
-The with-port and port-free tests contain 1,521 and 837 attacks respectively, so their raw counts have different denominators. Within each group every model uses the same test samples. Test comparisons describe the existing models without changing validation-based selections; final conclusions remain to be written.
+The with-port and port-free tests contain 1,521 and 837 attacks respectively, so their raw counts have different denominators. Within each group every model uses the same test samples. Test comparisons describe the existing models without changing validation-based selections. A model with higher macro-F1 can still have more Attack FN; neither the Task 5D highlight nor the Task 6 reference denotes the fewest missed attack alarms. Without a specified FN/FP cost ratio, we report both error counts rather than assign a universal detector ranking; the final discussion below brings these results together.
 
 **Smaller-model test results.** Task 6A bis obtains accuracy 0.97419, macro-F1 0.90536 and ordinary CE 0.07386. It misses 55 of 837 attacks at the binary alarm level (Attack FNR 6.57%), versus 49 for the original early-stopping model, with 25 versus 27 benign false alarms. It detects 26/43 PortScan flows and has 17 PortScan class false negatives, versus 8 for early stopping; both have one PortScan false positive. These test results describe the fixed models without changing the validation-based selection.
+
+## Final discussion - judgement across the lab
+
+**The most useful decisions came before added complexity.** The controlled Task 2B runs show that scaling and LR make optimization usable: raw inputs produce very large, erratic CE, while the very low LR leaves macro-F1 at 0.7391 versus 0.9325 for the minimal reference within the available epoch budget. Our initial failure ranking was wrong, which makes the measured curves more informative than the prediction. Task 5C then shows an optimizer-LR interaction: the tested combinations do not establish that LR generally dominates optimizer choice.
+
+**Inspecting the data changed the meaning of success.** Changing only Brute Force test ports drops detections from 206/214 to 8/214, exposing a shortcut despite high original accuracy. Removing Destination Port and deduplicating leaves only 285 unique labelled PortScan observations, including 199 in training. That makes rare-class errors central to our threat model. Weighting correctly identifies ten additional validation PortScan flows, but adds 101 PS false positives and lowers macro-F1. We accept that specific coverage/classification tradeoff as the starting point for Task 5, rather than describe weighting as an overall improvement.
+
+**Depth gives a conditional return for the experiments spent.** The selected Task 5D model improves on the weighted simple reference in test macro-F1 (0.75237 -> 0.81658), Attack FN (32 -> 23) and Benign FP (266 -> 178), while correctly identifying two fewer PortScan flows. The unweighted simple reference still has higher accuracy and macro-F1, but misses 76 attacks versus 23. Task 5 uses 11 logged configurations; the additional batch/optimizer trials do not replace the depth candidate under our validation compromise. About eleven times as many parameters (14,068 versus 1,284) therefore buy a particular error tradeoff, not a universal win over a simple network.
+
+**Early stopping is the clearest effort saving within Task 6.** It uses 160 rather than 200 epochs and improves validation macro-F1 (0.92934 -> 0.94799) and PortScan identification (32/43 -> 37/43). Removing the final layer reduces parameters by only 0.97% and worsens those classification metrics against fixed training. The tested weight decay, dropout and batch normalization variants do not improve the chosen validation compromise. On test, early stopping improves macro-F1 relative to fixed training, while accuracy and CE worsen slightly; it still offers the more useful validation reference for the effort spent.
+
+**The final comparison remains a choice between error profiles.** Against the weighted Task 4B model, Task 6A has better test accuracy/macro-F1 and far fewer benign false alarms (266 -> 27), but more missed attack alarms (32 -> 49) and fewer correct PortScan identifications (43/43 -> 35/43). The Task 5D reference also misses fewer attacks than Task 6A (23 versus 49), at the cost of more benign false alarms (178 versus 27). Our threat model makes that coverage cost important: a higher macro-F1 alone does not establish the preferred detector. We preserve the models selected on validation and use test only to characterize these profiles; the extra comparison is descriptive, not another selection round.
+
+Overall, our best return on effort is a defensible preprocessing pipeline, controlled checks of optimization and shortcuts, explicit treatment of imbalance, and early stopping before extra regularization. More complexity adds conditional gains. The shared limits above - one split/seed, small PortScan support and ambiguous input patterns - keep these conclusions specific to this dataset and protocol; they do not explain every failure or establish deployment readiness.
 
 ## Logbook and submission
 
