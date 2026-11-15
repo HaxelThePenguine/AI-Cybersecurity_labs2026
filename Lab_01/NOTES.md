@@ -84,6 +84,8 @@ Our exploratory mean one-vs-rest scores are Benign 0.0929, Brute Force 0.1424, P
 
 **[PDF §6.1] Configuration.** Our retained minimal classifier is run 1: 16 -> 64 -> 4, ReLU, ordinary CE, AdamW lr=5e-4/weight_decay=0.01, batch 64, maximum 150 epochs, patience 20, min_delta=5e-5, seed 42 and CPU. We restore the minimum-validation-loss checkpoint; min_delta controls patience.
 
+**Stopping settings.** Patience 20 is a practical fixed tolerance for validation fluctuations, not an optimized or uniquely correct value. We keep it fixed across early-stopping comparisons. Improvements smaller than min_delta can update the saved minimum-loss checkpoint without resetting patience; stopping therefore need not occur exactly 20 epochs after the restored epoch.
+
 **Prediction:** Brute Force would be hardest because it has only 999 training samples; DoS Hulk might be easier given its higher exploratory separation score.
 
 | Class | Precision | Recall | F1 | Support |
@@ -126,7 +128,7 @@ We would fix **scaling first**, then LR: sensible magnitudes make optimization e
 
 **[PDF §6.3] Selected port-based baseline.**
 
-Run 5 uses 16 -> 64 -> 4, ReLU, ordinary CE, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42. We restore epoch 196. This is our selected port-based baseline.
+Run 5 uses 16 -> 64 -> 4, ReLU, ordinary CE, AdamW lr=1e-3/weight_decay=0.005, batch 64, up to 200 epochs, patience 20, min_delta=5e-5 and seed 42. We restore epoch 196. This is our selected port-based baseline. Relative to Task 2A, LR, weight decay and maximum epochs change together, so this is a revised reference configuration, not an isolated test of the benefit of weight decay.
 
 **[PDF §6.3] Validation versus test: does it generalize?**
 
@@ -358,6 +360,8 @@ All six current Task 6 configurations are executed; the smaller fixed-epoch mode
 
 **Controlled change and prediction.** We keep the original architecture and all training settings, adding patience 20 and min_delta=5e-5, with a maximum of 200 epochs. We restore the absolute minimum-validation-CE checkpoint; min_delta controls patience only. We expected fewer epochs and possibly better validation performance.
 
+The lower validation CE is partly built into this comparison: early stopping restores the minimum on that same validation set, whereas fixed training keeps the final epoch. It is not independent evidence of better generalization; we assess the held-out test separately.
+
 **Result.** Run 21 stops at epoch 160 and restores epoch 140. Compared with the fixed-epoch model, CE improves from 0.07374 to 0.06726 and macro-F1 from 0.92934 to 0.94799. PortScan detections rise from 32/43 to 37/43, with the same two false positives. We save 40 training epochs (20%) and obtain better validation results. This is the clearest performance-per-effort gain within Task 6.
 
 ### Task 6A bis - Smaller network without early stopping
@@ -426,6 +430,10 @@ We include all 25 current configurations in two overview figures: six with Desti
 
 The with-port and port-free tests contain 1,521 and 837 attacks respectively, so their raw counts have different denominators. Within each group every model uses the same test samples. Test comparisons describe the existing models without changing validation-based selections. A model with higher macro-F1 can still have more Attack FN; neither the Task 5D highlight nor the Task 6 reference denotes the fewest missed attack alarms. Without a specified FN/FP cost ratio, we report both error counts rather than assign a universal detector ranking; the final discussion below brings these results together.
 
+**Validation selection does not guarantee a test winner.** The compact 64-64-32 model has test macro-F1 0.82088 versus 0.81658 for the selected 64-128-32-16 model, with fewer Attack FN (20 versus 23) and Benign FP (153 versus 178), using 7,396 rather than 14,068 parameters. Both correctly identify 41/43 PortScan flows; the selected model has fewer PS FP (82 versus 99). This reverses the small validation macro-F1 advantage of the larger model (0.83696 versus 0.83485) and strengthens the case that added depth is not reliably better on this split. We report the reversal without selecting again on test.
+
+The dropout variant also has slightly higher test macro-F1 than early stopping alone (0.94679 versus 0.94420), but more Attack FN (74 versus 49) and fewer Benign FP (14 versus 27). AdamW LR 0.01 has the fewest Attack FN among the logged port-free models (15), with 400 Benign FP, compared with 23 and 178 for Task 5D. These are descriptive tradeoffs, not new validation-based choices.
+
 **Smaller-model test results.** Task 6A bis obtains accuracy 0.97419, macro-F1 0.90536 and ordinary CE 0.07386. It misses 55 of 837 attacks at the binary alarm level (Attack FNR 6.57%), versus 49 for the original early-stopping model, with 25 versus 27 benign false alarms. It detects 26/43 PortScan flows and has 17 PortScan class false negatives, versus 8 for early stopping; both have one PortScan false positive. These test results describe the fixed models without changing the validation-based selection.
 
 ## Final discussion - judgement across the lab
@@ -434,7 +442,7 @@ The with-port and port-free tests contain 1,521 and 837 attacks respectively, so
 
 **Inspecting the data changed the meaning of success.** Changing only Brute Force test ports drops detections from 206/214 to 8/214, exposing a shortcut despite high original accuracy. Removing Destination Port and deduplicating leaves only 285 unique labelled PortScan observations, including 199 in training. That makes rare-class errors central to our threat model. Weighting correctly identifies ten additional validation PortScan flows, but adds 101 PS false positives and lowers macro-F1. We accept that specific coverage/classification tradeoff as the starting point for Task 5, rather than describe weighting as an overall improvement.
 
-**Depth gives a conditional return for the experiments spent.** The selected Task 5D model improves on the weighted simple reference in test macro-F1 (0.75237 -> 0.81658), Attack FN (32 -> 23) and Benign FP (266 -> 178), while correctly identifying two fewer PortScan flows. The unweighted simple reference still has higher accuracy and macro-F1, but misses 76 attacks versus 23. Task 5 uses 11 logged configurations; the additional batch/optimizer trials do not replace the depth candidate under our validation compromise. About eleven times as many parameters (14,068 versus 1,284) therefore buy a particular error tradeoff, not a universal win over a simple network.
+**Depth gives a conditional return for the experiments spent.** The selected Task 5D model improves on the weighted simple reference in test macro-F1 (0.75237 -> 0.81658), Attack FN (32 -> 23) and Benign FP (266 -> 178), while correctly identifying two fewer PortScan flows. The unweighted simple reference still has higher accuracy and macro-F1, but misses 76 attacks versus 23. Task 5 uses 11 logged configurations; the additional batch/optimizer trials do not replace the depth candidate under our validation compromise. The extra test comparison also favors compact 64-64-32 over the selected deeper model on macro-F1 and both binary error counts, so the validation ranking does not persist on test. About eleven times as many parameters (14,068 versus 1,284) therefore buy a particular error tradeoff, not a universal win over a simple network.
 
 **Early stopping is the clearest effort saving within Task 6.** It uses 160 rather than 200 epochs and improves validation macro-F1 (0.92934 -> 0.94799) and PortScan identification (32/43 -> 37/43). Removing the final layer reduces parameters by only 0.97% and worsens those classification metrics against fixed training. The tested weight decay, dropout and batch normalization variants do not improve the chosen validation compromise. On test, early stopping improves macro-F1 relative to fixed training, while accuracy and CE worsen slightly; it still offers the more useful validation reference for the effort spent.
 
