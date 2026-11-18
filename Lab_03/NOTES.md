@@ -245,7 +245,16 @@ Diagnostic sweep k = 2…30 (logbook run 10, `n_init=10`, seed 42), with two uns
 | SSE drop when adding the k-th cluster | 22% | 13-21% | 7-9% | 9% | 3-7% | 1-4% |
 | Mean silhouette | 0.37 / 0.36 | 0.40-0.43 | 0.45-0.47 | **0.487** | 0.41-0.44 | 0.38-0.45 |
 
-The SSE decreases smoothly with no sharp elbow. Up to k = 10 every added cluster still reduces the SSE by 7-9% or more; after k = 10 the gain stays at about 7% or less, and falls below 5% from k = 15. The mean silhouette reaches its **global maximum at k = 10**, then drops to 0.41 at k = 11 and never returns to that level. Both criteria agree, so we **select k = 10**. The oscillations of the silhouette at large k are probably due to K-Means converging to different local optima; we did not test this with other seeds, to save runs.
+The SSE decreases smoothly with no sharp elbow. Up to k = 10 every added cluster still reduces the SSE by 7-9% or more; after k = 10 the gain stays at about 7% or less, and falls below 5% from k = 15. With seed 42 the mean silhouette is highest at k = 10, then drops to 0.41 at k = 11 and oscillates at larger k.
+
+**Robustness to the initialisation (logbook run 12).** We repeated the same procedure (`n_init=10`) for k = 8-12 with five seeds:
+
+| k | 8 | 9 | **10** | 11 | 12 |
+| --- | --- | --- | --- | --- | --- |
+| Mean silhouette (5 seeds) | 0.457 | 0.471 | **0.485** | 0.445 | 0.419 |
+| Range | 0.450-0.469 | 0.465-0.475 | 0.473-0.490 | 0.414 / 0.491 | 0.418-0.421 |
+
+The oscillations are **local optima** of K-Means, not structure in the data. Each seed can converge to a different solution. With a single initialisation (`n_init=1`, exploratory check) the silhouette varies by 0.07-0.11 at the same k, more than between neighbouring k. Even with `n_init=10`, k = 11 has two solutions, at 0.414 (the one seed 42 found) or 0.491, so the drop at k = 11 in run 10 was an artefact of the seed. The decrease from k = 12 is real, because it is stable across seeds. The silhouette is therefore high and flat for k = 9-11. **We keep k = 10**: it has the highest mean silhouette and is the most stable across seeds, while k = 11 depends on the initialisation. It is also the last k where the SSE gain is still about 9%.
 
 Our hypothesis was partly wrong. We expected the best silhouette at k = 2-3 (a coarse split such as SYN flood vs the rest), but k = 2-3 is the worst: a coarse split puts very different services (http, DNS, ftp…) in the same cluster, so points are not cohesive with their own group. The data have about ten natural groups, more than the four labels, as Task 1 suggested: normal traffic differs by `service`/`flag`, DoS is bimodal, probe is heterogeneous.
 
