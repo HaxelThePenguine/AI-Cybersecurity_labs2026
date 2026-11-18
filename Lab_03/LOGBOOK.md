@@ -36,4 +36,4 @@ Task 7  (PCA / AE+OCSVM): runs ~20-22
 
 Seed 42; preprocessing fitted on training data only (see NOTES Task 1). Labels are used only to build training subsets and to evaluate, never as a supervised signal. The test set is used only where a task explicitly asks for it. Times are indicative and may change on rerun.
 
-**Count:** 9 retained runs (Task 2: runs 1-7; Task 3: runs 8-9). The Task 2C row is a test evaluation of already-fitted models (runs 1, 3, 6) and is not counted in the budget.
+**Count:** 14 retained runs (Task 2: runs 1-7; Task 3: runs 8-9; Task 4: runs 10-14). The Task 2C row (test evaluation of already-fitted runs 1, 3, 6) and the 4A-det and 4B-LOF rows (no new configuration) are not counted in the budget.

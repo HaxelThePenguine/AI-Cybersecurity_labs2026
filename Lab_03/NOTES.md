@@ -2,7 +2,7 @@
 
 `[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names. OC-SVM = One-Class SVM; LOF = Local Outlier Factor; AE = Autoencoder; FPR = false-positive rate (normal flagged as anomalous). "Anomaly" = binary_label 1 (any attack). Macro-F1 is binary (normal vs anomaly) unless stated otherwise.
 
-**Status:** Tasks 1, 2 (2A, 2B, 2C) and 3 complete. Tasks 4–7 pending.
+**Status:** Tasks 1, 2 (2A, 2B, 2C), 3 and 4 (4A, 4B) complete, all in `lab3.ipynb`. Task 5 removed from the assignment. Tasks 6–7 pending.
 
 **Knowledge assumptions (global):** labels are used only to build training subsets and to evaluate, never as a supervised signal. Preprocessing is fitted on training data only. The test set is used only where a task explicitly asks for it; any validation set is carved out of train.csv.
 
@@ -421,7 +421,7 @@ LOF is recomputed with the Task 3 selection (`n_neighbors` = 100, known contamin
 
 ## Logbook and submission
 
-The current logbook lists **9 retained runs** (budget ~25): Task 2 runs 1-7, Task 3 runs 8-9. Task 2C is a test evaluation of runs 1, 3, 6 and uses no budget.
+The current logbook lists **14 retained runs** (budget ~25): Task 2 runs 1-7, Task 3 runs 8-9, Task 4 runs 10-14. Task 2C (test evaluation of runs 1, 3, 6), 4A-det and 4B-LOF use no budget.
 
 - [ ] Report `groupID_lab3.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
 - [ ] Experiment logbook, separate or appendix (outside the page limit).
