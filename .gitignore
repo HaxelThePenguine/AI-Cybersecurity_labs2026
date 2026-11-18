@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Python / Jupyter
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+Lab_01/MY_TEST_NVM.ipynb
+
+# Coordinamento locale, non condiviso via git
+Lab_03/COORDINAMENTO_T2_T3.md

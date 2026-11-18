@@ -158,9 +158,28 @@ Notebook: Task 2B cells (subset table, runs 3–7, plot, diagnostic cell).
 
 ## Task 3 - Local Outlier Factor
 
-**[PDF §3] Four `n_neighbors` values and selection criterion.** *Pending.*
+**Knowledge assumed.** LOF is fitted on the full training file (normal + all attacks, no labels). Only the aggregate training contamination (0.286) is used, to set the threshold (known-contamination setting, as in Task 2). Euclidean distance on the 106 preprocessed features.
 
-**[PDF §3] Test results; can LOF detect the attacks; local density of attacks; effect of `n_neighbors`.** *Pending.*
+**[PDF §3] Four `n_neighbors` values and selection criterion.**
+
+We test **5, 20 (sklearn default), 100, 500**, log-spaced to include the extremes: 5 is a very local density estimate; 500 is larger than the whole r2l class (181) and comparable with groups of repeated DoS connections. The four fits form one diagnostic sweep (logbook run 8). Criterion: **highest binary macro-F1 on the training file** (labels for evaluation only), checked against the threshold-free **ROC-AUC** of the LOF score, so that ranking quality is separated from the threshold. With the known contamination, exactly 28.6% of the points are flagged, so FP = FN at every k.
+
+| `n_neighbors` | LOF threshold | Macro-F1 | FPR | dos recall | probe recall | r2l recall | ROC-AUC | Macro-F1 `'auto'` (LOF > 1.5) | Fit s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 5 | 1.139 | 0.5145 | 0.2776 | 0.292 | 0.317 | 0.414 | 0.497 | 0.4984 | 0.5 |
+| 20 | 1.138 | 0.5294 | 0.2690 | 0.340 | 0.310 | 0.359 | 0.513 | 0.5339 | 0.4 |
+| **100** | 1.236 | **0.5774** | 0.2416 | 0.533 | 0.240 | 0.166 | **0.593** | 0.5829 | 0.5 |
+| 500 | 1.267 | 0.5224 | 0.2731 | 0.447 | 0.148 | 0.381 | 0.488 | 0.5539 | 1.6 |
+
+**Selected: `n_neighbors = 100`**, the best value on both criteria. The margin is small, though: the best AUC is only 0.59, and with k = 5 and k = 500 the LOF score ranks attacks no better than chance (AUC ≈ 0.5). Flagging 28.6% of points at random would give macro-F1 ≈ 0.5 with recall 0.286 for every class. The `'auto'` threshold (no knowledge of the contamination) flags 11–22% of the points and gives a similar macro-F1. The threshold is therefore not the limitation; the score itself is.
+
+**[PDF §3] Test results; can LOF detect the attacks; local density of attacks; effect of `n_neighbors`.**
+
+Test (logbook run 9, `novelty=True`, threshold from the training contamination): **macro-F1 0.5691**, ROC-AUC 0.605, FPR 0.352, recall **dos 0.611, probe 0.336**. Confusion matrix: TN 1,395, FP 757, FN 1,731, TP 1,943. 46% of the test is flagged (vs 28.6% in train): the larger dos share in test pushes more points above the training threshold. Errors go both ways: one third of normal traffic is flagged, and 47% of the attacks are missed, mostly probe.
+
+- **LOF does not detect the attacks in a useful way.** Its train/test performance is close to a random detector at the same flag rate. With the OC-SVM trained on clean normal data (Task 2A, run 1), the gap is large: macro-F1 0.94 on train.
+- **Attacks are not less dense than their neighbours.** The median LOF is ≈ 1.04–1.09 for every class at k = 5 and k = 20. Normal traffic has the same values. LOF measures *relative* density, not distance from normal traffic. As Task 1 suggested, DoS consists of many near-identical connections (zero bytes, same host, `serror_rate` = 1), so each DoS point sits in a dense group of other DoS points, with LOF ≈ 1. **Our hypothesis for probe was wrong:** we expected isolated points, but scans and sweeps also repeat the same connection pattern many times and form dense groups. Probe is the class LOF misses most. **False positives are not explained by rare or extreme normal traffic** (diagnostic at k = 100, notebook): only 5.9% of the 3,249 FP use a service with < 100 training rows, and only 5.0% have bytes or duration above the normal 99th percentile. Most FP are ordinary `http`, `domain_u`, `smtp` and `ftp_data` connections, flagged at a near-uniform rate of 20–30% per service: this is the near-random part of the score. The one clear pattern is error flags. Normal connections with flags S0, S1, RSTO, RSTR, S2 or S3 are flagged 93–100% of the time, and REJ 50%. FP also have higher `rerror` rates and lower `dst_host_srv_count` / `logged_in`. These normal connections look partly like DoS (S0) and probe (REJ), so they lie at the edge of the dense attack groups, where they are sparser than their neighbours. With 28.6% contamination, the attacks are not a small, isolated minority, which is exactly the assumption LOF relies on.
+- **Effect of `n_neighbors`.** Small k (5, 20) compares each point only with its own micro-cluster, so a point inside a DoS group looks perfectly normal. At **k = 100** the neighbourhood of a DoS point extends beyond its group: median LOF for dos rises to 1.275 and dos recall to 0.53. At **k = 500** the neighbourhoods are so wide that densities are averaged across classes, and dos (median 1.05) and probe (1.02) look normal again. **R2L behaves the opposite way.** Its 181 connections are all distinct (no duplicates), and 179 of them are `ftp`/`ftp_data` with flag SF, so they form one compact group of their own. At k = 5 and k = 20, 88–92% of an r2l point's neighbours are other r2l points; the median LOF is 1.09 and recall 0.41/0.36, so r2l is slightly sparser than its own group. At k = 100 the neighbours are 71% r2l and 29% normal; the median LOF is 1.00, as dense as its neighbours, and recall falls to 0.17. At k = 500 (more than the 181 r2l points) 81% of the neighbours are normal; LOF rises to 1.10 and recall to 0.38, because the r2l group as a whole is sparser than the normal ftp traffic around it. No single k fits all attacks, because the attack groups have very different sizes.
 
 ## Task 4 - Anomaly detection with clustering
 
