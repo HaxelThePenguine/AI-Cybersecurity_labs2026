@@ -234,15 +234,89 @@ Test (logbook run 9, `novelty=True`, threshold from the training contamination):
 
 ### Task 4A - K-Means
 
-**[PDF §4.A] Choice of k.** *Pending.*
+**Knowledge assumed.** K-Means is fitted on the full training file (normal + all attacks, no labels), on the same 106 preprocessed features (Euclidean distance). k is chosen **without labels**. Labels are used only afterwards, to describe the clusters and to evaluate the detector. The detector threshold uses the aggregate training contamination (policy a) or a "rare attacks" prior (policy b), as in Task 2.
 
-**[PDF §4.A] Cluster sizes, label distribution and purity.** *Pending.*
+**[PDF §4.A] Choice of k.**
 
-**[PDF §4.A] Silhouette per cluster; low-silhouette clusters and their labels.** *Pending.*
+Diagnostic sweep k = 2…30 (logbook run 10, `n_init=10`, seed 42), with two unsupervised criteria: the SSE elbow and the mean silhouette.
 
-**[PDF §4.A] Distance-to-centroid threshold; detected vs missed attacks.** *Pending.*
+| k | 2-3 | 4-6 | 7-9 | **10** | 11-15 | 16-30 |
+| --- | --- | --- | --- | --- | --- | --- |
+| SSE drop when adding the k-th cluster | 22% | 13-21% | 7-9% | 9% | 3-7% | 1-4% |
+| Mean silhouette | 0.37 / 0.36 | 0.40-0.43 | 0.45-0.47 | **0.487** | 0.41-0.44 | 0.38-0.45 |
 
-**[PDF §4.A] t-SNE (3 perplexities), coloured by label vs cluster.** *Pending.*
+The SSE decreases smoothly with no sharp elbow. Up to k = 10 every added cluster still reduces the SSE by 7-9% or more; after k = 10 the gain stays at about 7% or less, and falls below 5% from k = 15. The mean silhouette reaches its **global maximum at k = 10**, then drops to 0.41 at k = 11 and never returns to that level. Both criteria agree, so we **select k = 10**. The oscillations of the silhouette at large k are probably due to K-Means converging to different local optima; we did not test this with other seeds, to save runs.
+
+Our hypothesis was partly wrong. We expected the best silhouette at k = 2-3 (a coarse split such as SYN flood vs the rest), but k = 2-3 is the worst: a coarse split puts very different services (http, DNS, ftp…) in the same cluster, so points are not cohesive with their own group. The data have about ten natural groups, more than the four labels, as Task 1 suggested: normal traffic differs by `service`/`flag`, DoS is bimodal, probe is heterogeneous.
+
+**[PDF §4.A] Cluster sizes, label distribution and purity.**
+
+Run 11 (k = 10). The last column describes each cluster from its most frequent raw `protocol_type`/`service`/`flag` values and its median `serror_rate`, `rerror_rate`, `count` and `src_bytes`, and is used only to interpret it. The attack technique names (SYN flood, port scan, ping sweep) are our interpretation: the dataset only has the four labels.
+
+| Cluster | Size | normal | dos | probe | r2l | Purity | What it is |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 7,251 | 7,055 | 196 | 0 | 0 | 0.973 | http (100%), SF |
+| 3 | 1,841 | 1,841 | 0 | 0 | 0 | **1.000** | UDP, domain_u (DNS, 97%) |
+| 2 | 1,757 | 15 | 1,657 | 85 | 0 | 0.943 | SYN flood: flag S0 (96%), median `serror_rate` 1, `count` 171, 0 bytes |
+| 0 | 1,642 | 1,493 | 0 | 25 | 124 | 0.909 | ftp_data (68%), telnet (12%), finger (7%), SF |
+| 9 | 1,620 | 1,556 | 0 | 7 | 57 | 0.960 | smtp (86%), ftp (14%), SF |
+| 4 | 1,417 | 50 | 343 | 1,024 | 0 | 0.723 | port scan: REJ (60%) / RSTR (33%), median `rerror_rate` 1, many different services |
+| 6 | 1,169 | 666 | 188 | 315 | 0 | **0.570** | UDP, private (56%) / other (39%) |
+| 8 | 871 | 57 | 0 | 814 | 0 | 0.935 | ping sweep: ICMP eco_i (echo request, 100%), median `count` 1 (one connection to the same host in the 2-s window), 8 bytes |
+| 7 | 746 | 204 | 529 | 13 | 0 | 0.709 | ICMP ecr_i (echo reply, 77%) / urp_i (17%), median `count` 284, 1,032 bytes |
+| 5 | 517 | 511 | 0 | 6 | 0 | 0.988 | http (98%), flag REJ (99%) |
+
+- **Sizes** range from 517 to 7,251. The http cluster alone holds 38.5% of the training set.
+- **Only one cluster is pure** (DNS, normal only). The size-weighted purity is 0.911, but this number is inflated by normal traffic, which is 71% of the data and dominates the largest clusters.
+- **Normal traffic is split by service**: http, DNS, ftp_data, smtp, plus a normal http cluster with flag REJ. Normal also occurs inside every attack cluster.
+- **Attacks are split by technique, not by label.** DoS goes to five clusters: SYN flood (57% of dos, in an almost pure cluster), ICMP echo reply (18%), REJ (12%), http (7%) and UDP (7%). Probe goes to three: REJ port scans (45%), ICMP ping sweep (36%, purity 0.935) and UDP (14%).
+- **r2l has no cluster of its own.** Its 181 points are fewer than the smallest cluster (517): 68% fall in the ftp_data cluster and 32% in the smtp cluster. As Task 1 showed, r2l looks like normal ftp/smtp traffic except for a few content features.
+
+**[PDF §4.A] Silhouette per cluster; low-silhouette clusters and their labels.**
+
+Silhouette computed on all 18,831 points (mean 0.487).
+
+| Cluster | 0 ftp_data | 6 UDP | 4 REJ | 9 smtp | 7 ICMP ecr_i | 2 SYN flood | 1 http | 5 http REJ | 3 DNS | 8 ping sweep |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Mean silhouette | **0.196** | **0.208** | **0.224** | 0.318 | 0.377 | 0.559 | 0.601 | 0.609 | 0.663 | **0.700** |
+| Negative share | 4.3% | 8.1% | 3.5% | 0% | 3.9% | 0.1% | 0% | 0% | 0% | 0% |
+
+- **The three lowest-silhouette clusters are the mixed ones.** ftp_data contains normal + 124 r2l + 25 probe; UDP contains normal 666 + probe 315 + dos 188, with purity 0.57 and 8% negative silhouettes; REJ contains probe 1,024 + dos 343 + normal 50. Inside the REJ cluster the 50 normal points have a mean silhouette of 0.007: they lie exactly on the boundary with another cluster. In the ICMP echo reply cluster, the 204 normal points have 0.148 against 0.475 for dos.
+- Low silhouette is not only caused by the attack points. The normal points of the ftp_data cluster also have a low silhouette (0.194): the cluster mixes several services (ftp_data is only 68%), so it is wide.
+- **The most cohesive cluster is an attack cluster**: the ping sweep (0.700). The SYN flood is also well separated (0.559). We did not expect this. These attacks repeat the same connection pattern many times, so they form compact groups, as already seen with LOF in Task 3.
+
+**[PDF §4.A] Distance-to-centroid threshold; detected vs missed attacks.**
+
+The anomaly score is the Euclidean distance from the closest centroid of the run-11 model. There is no new fit; the logbook row "4A-det" is not counted in the budget. We use one **global** threshold with two policies, as in Task 2:
+- **(a) known contamination**: flag the 28.6% farthest points (threshold = the 71.4th percentile of the training distances);
+- **(b) unknown contamination**: prior "attacks are rare", flag the 5% farthest points (same prior as `nu = 0.05` in run 7).
+
+| Policy | Macro-F1 | FPR | Recall dos | Recall probe | Recall r2l | Precision |
+| --- | --- | --- | --- | --- | --- | --- |
+| (a) known, 28.6% | **0.654** | 0.198 | 0.398 | 0.607 | **0.972** | 0.506 |
+| (b) prior, 5% | 0.473 | 0.041 | 0.027 | 0.125 | 0.138 | 0.415 |
+
+The threshold-free ROC-AUC of the distance score is **0.729**, against 0.593 for LOF (k = 100) in Task 3.
+
+- **Detected.** Almost all r2l is detected (176 of 181, 97%), but for two different reasons. In the smtp cluster (57 r2l, all flagged) r2l is really atypical: its mean distance from the centroid is about twice that of the normal points of the cluster (1.79 vs 0.92; threshold 1.08). The largest contributions come from `is_guest_login`, `hot` and from being ftp connections in a mostly smtp cluster. In the ftp_data cluster (124 r2l, 119 flagged) r2l is **not** clearly farther from the centroid than normal traffic: mean distance 1.22 vs 1.18, both above the threshold (1.08). Its distance is driven by host statistics (`dst_host_same_src_port_rate`, `dst_host_same_srv_rate`, `dst_host_count`), and it is flagged only because the whole cluster is wide: 47% of the normal points there are flagged too. The REJ probe + dos cluster is detected almost entirely (1,020 of 1,024 probe, 337 of 343 dos), because the cluster is wide. All 188 UDP dos and 67% of the UDP probe are detected for the same reason.
+- **Missed.** The **ICMP ping sweep** is missed: only 25 of its 814 probe points are flagged (3.1%). So is the **ICMP echo reply DoS**: 24 of 529 (4.5%); the cluster's 32% flag rate comes almost entirely from its 204 normal points, which are all flagged. Two thirds of the **SYN flood** DoS is missed: 555 of 1,657 flagged (33.5%). These attacks form compact clusters with their own centroid, so most points are close to "their" centre.
+- **False positives** come from the wide clusters. In the UDP cluster 658 of its 666 normal points are flagged. The ftp_data cluster gives 705 FP and smtp 354. Compact normal clusters are rarely flagged (http 5%, DNS 14%).
+- **What the score really measures.** With a global threshold on the raw distance, the decision mainly reflects **how spread the cluster is**: wide clusters are flagged almost entirely, whether they hold attacks (REJ) or normal traffic (UDP), and compact clusters pass, even when they are attacks (ping sweep). This is the same limit as LOF. The attacks are not a small, isolated minority; they form dense groups that receive their own centroid.
+- **Policy (b)** flags only 5% and catches almost nothing. Its precision (0.42) is even lower than with (a) (0.51): the farthest points are largely unusual normal connections. The assumption "attacks are rare" does not hold on a training set with 28.6% contamination.
+- K-Means does better than LOF on the training file (macro-F1 0.654 vs 0.577, AUC 0.73 vs 0.59), but it remains a weak detector: one normal connection in five is flagged, and 60% of the DoS is missed.
+
+**[PDF §4.A] t-SNE (3 perplexities), coloured by label vs cluster.**
+
+t-SNE of all 18,831 training points (`init='pca'`, seed 42) with perplexity **5, 30 and 100** (81, 84 and 107 s). Each embedding is shown twice, coloured by attack label and by K-Means cluster (k = 10). The reading is **visual only**: t-SNE preserves local neighbourhoods, but the distances between islands and their sizes are not reliable. We therefore state only patterns that appear at all three perplexities and agree with the K-Means tables.
+
+- **Effect of perplexity.** At 5 the map is a uniform disc of short filaments: only very local structure, no clear groups. At 30 and 100 the points separate into islands, which are more compact at 100. The conclusions below hold at 30 and 100 and are already visible as sectors at 5.
+- **Label vs cluster colouring: the main difference.** In the label view, normal traffic is a single colour spread over many separate islands. The cluster view splits it into http (cluster 1), DNS (3), ftp_data (0), smtp (9), http-REJ (5) and UDP (6). K-Means follows the **service/flag structure** that t-SNE also shows, while the labels group very different traffic under one name. The same holds for the attacks: "dos" is several distant islands (SYN flood, ICMP echo reply, smaller groups), and each matches one K-Means cluster. A cluster therefore describes an attack *technique* (SYN flood, ping sweep, port scan) better than the label does.
+- **Where the two views disagree (largest overlaps).**
+  - (1) **r2l inside normal islands.** The small r2l groups sit inside or at the edge of normal ftp_data/smtp islands (clusters 0 and 9). r2l shares protocol, service, flag, login status and byte volumes with this traffic and differs only on a few content features (`hot`, `is_guest_login`).
+  - (2) **Probe and dos interleaved** in the REJ islands (cluster 4) and in the UDP islands (cluster 6), together with normal UDP traffic. These points share protocol, service and flag; the one-hot columns weigh as much as a full-range numerical feature in the Euclidean distance, so these points end up close to each other.
+  - (3) **Clusters split over several islands.** Some single clusters appear as two or more separate islands, so K-Means merged groups that t-SNE keeps apart: http (cluster 1), smtp/ftp (9), ftp_data/telnet/finger (0) and especially UDP (6). This agrees with their low silhouette and, for UDP, its purity of 0.57.
+- **Attacks that fall in close regions.** Most DoS and probe islands (SYN flood, REJ scans, UDP) lie on the same side of the map, away from the bulk of normal traffic, at all three perplexities. They share no payload, no login, many connections per host and high error rates. The exception is the ICMP ping sweep, which forms its own island elsewhere. r2l instead lies among normal islands. We do not read more into the distances between islands.
+- **Compactness of the attack islands.** The ping sweep (cluster 8) is one dense, isolated island, consistent with its silhouette of 0.70. It is missed by the distance-to-centroid detector because every point is close to its own centre. The SYN flood (cluster 2) shows a dense core plus a halo of scattered points. This is consistent with only part of it (37%) being flagged, but we did not check that the flagged points are the halo.
 
 ### Task 4B - DBSCAN
 
