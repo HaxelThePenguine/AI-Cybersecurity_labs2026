@@ -78,27 +78,73 @@ We fit one preprocessor on the **full training file** (normal + anomalies) and r
 
 | Run | `nu` | Train FPR | Macro-F1 | dos recall | probe recall | r2l recall | FP | FN | SV | Fit s |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 0.01 | 0.0104 | 0.9367 | 0.910 | 0.844 | 0.017 | 140 | 796 | 153 | 0.3 |
-| 2 | 0.5 | 0.5000 | 0.6367 | 0.974 | 1.000 | 0.994 | 6,724 | 78 | 6,726 | 13.5 |
+| 1 | 0.01 | 0.0104 | 0.9367 | 0.910 | 0.844 | 0.017 | 140 | 796 | 153 | 0.1 |
+| 2 | 0.5 | 0.5000 | 0.6367 | 0.974 | 1.000 | 0.994 | 6,724 | 78 | 6,726 | 5.7 |
 
 We keep **`nu = 0.01`** (run 1). The default flags half of normal traffic; its higher recall does not compensate.
 
 **[PDF §2] Why clean normal data helps; what `nu` controls; can it be zero; effect on FPR.**
 
 - **Clean data:** the OC-SVM learns the support of whatever it is given. With normal data only, the boundary describes normal traffic, and every point outside is by construction a false alarm, so the accepted FPR can be set directly. Attacks in training would be enclosed by the boundary (Task 2B).
-- **`nu`:** upper bound on the fraction of training points outside the boundary and lower bound on the fraction of support vectors. Both hold here: FPR 0.0104 / 0.5000, SV 1.1% / 50.0%.
+- **`nu`:** upper bound on the fraction of training points outside the boundary and lower bound on the fraction of support vectors. SV 1.1% / 50.0% ≥ `nu`. FPR 0.5000 ≤ 0.5; for `nu = 0.01` the bound is exceeded by 6 points (140 outside vs 134.5), because the solver stops at a tolerance (`tol = 1e-3`) and some points lying on the boundary end up with a slightly negative decision value.
 - **Choice:** with clean data, `nu` ≈ accepted training FPR. We accept ~1% (~134 connections) as slack for rare but legitimate normal patterns (rare services, sparse indicators from Task 1).
 - **Zero:** not allowed (sklearn requires `nu ∈ (0, 1]`). As `nu → 0` the boundary must enclose every training point, noise included, and becomes loose around attacks.
 - **Effect on FPR:** training FPR tracks `nu` almost exactly (0.0104 vs 0.01; 0.5000 vs 0.5).
-- **What is missed (run 1):** R2L is almost entirely inside the normal region (3/181 detected), as expected from Task 1.3. 9% of DoS and 16% of probe are also missed. With `nu = 0.5` R2L is caught (0.994) only because the boundary shrinks to the densest half of normal traffic.
+- **What is missed (run 1):** R2L is almost entirely inside the normal region (3/181 detected), as expected from Task 1.3. 9% of DoS and 16% of probe are also missed. All missed DoS are of the non-SYN kind: SYN-flood DoS (`serror_rate` > 0.5, 1,675 rows) have recall 1.000, the other 1,238 DoS 0.788 (the bimodality seen in Task 1.3). With `nu = 0.5` R2L is caught (0.994) only because the boundary shrinks to the densest half of normal traffic.
 
 ### Task 2B - Normal + anomalous traffic (contamination 0/10/20/50/100%)
 
-| Subset | Anomalies included | Contamination | `nu` | Train macro-F1 |
-| --- | --- | --- | --- | --- |
-| | | | | |
+**Setup.** All 13,448 normal connections + a fraction of the 5,383 training anomalies, drawn from one random permutation (seed 42), so the subsets are nested (10% ⊂ 20% ⊂ 50% ⊂ 100%). The 0% subset is the Task 2A model (run 1). Same RBF, `gamma='scale'`: it is recomputed on each subset but changes by only ~3% (0.146 normal-only, 0.141 full train), so the kernel is effectively unchanged. Labels are used only to build the subsets. *Subset* metrics are computed on the training subset itself (the "training score" the assignment asks for); *full-train* metrics on the whole train.csv, the same set for every model.
 
-**[PDF §2] How the contamination rate guides `nu`; the unknown-contamination case; trend; fairness of cross-subset comparison.** *Pending.*
+| Run | Anomalies included (dos / probe / r2l) | Contamination c | `nu` | Subset FPR | Subset macro-F1 | Full-train macro-F1 | dos / probe / r2l recall (full train) | FP | FN | SV | Fit s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0% (0) | 0 | 0.01 | 0.0104 | n/a (one class) | 0.9367 | 0.910 / 0.844 / 0.017 | 140 | 796 | 153 | 0.1 |
+| 3 | 10% (538: 289 / 232 / 17) | 0.0385 | 0.0481 | 0.0288 | 0.7242 | 0.7638 | 0.501 / 0.523 / 0.110 | 387 | 2,708 | 685 | 0.5 |
+| 4 | 20% (1,077: 576 / 458 / 43) | 0.0741 | 0.0834 | 0.0464 | 0.7354 | 0.7656 | 0.534 / 0.543 / 0.193 | 624 | 2,548 | 1,219 | 1.0 |
+| 5 | 50% (2,692: 1,410 / 1,183 / 99) | 0.1668 | 0.1751 | 0.0912 | 0.7463 | 0.7661 | 0.585 / 0.626 / 0.409 | 1,227 | 2,170 | 2,834 | 3.5 |
+| 6 | 100% (5,383), **known c** | 0.2859 | 0.2930 | 0.1546 | 0.7402 | 0.7402 | 0.609 / 0.681 / 0.586 | 2,079 | 1,945 | 5,523 | 8.7 |
+| 7 | 100% (5,383), **unknown c** | (0.2859) | 0.05 | 0.0286 | 0.5059 | 0.5059 | 0.079 / 0.139 / 0.083 | 384 | 4,820 | 968 | 1.0 |
+
+FP/FN are on the full train.csv. For run 6/7 the subset is the full train.csv, so the two scores coincide.
+
+| Run | `nu` | Fraction left outside (subset) | Attacks among outside points | SYN-flood DoS recall | Other DoS recall |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 0.01 | 0.010 | 0.00 | 1.000 | 0.788 |
+| 3 | 0.048 | 0.048 | 0.43 | 0.545 | 0.440 |
+| 4 | 0.083 | 0.083 | 0.48 | 0.610 | 0.432 |
+| 5 | 0.175 | 0.175 | 0.57 | 0.642 | 0.509 |
+| 6 | 0.293 | 0.293 | 0.62 | 0.643 | 0.563 |
+| 7 | 0.05 | 0.050 | 0.60 | 0.081 | 0.077 |
+
+**[PDF §2] How does knowing the contamination rate guide `nu`?**
+
+`nu` bounds the fraction of training points left outside the boundary. If the contamination `c` is known, the natural choice is to leave out at least all anomalies, plus the 1% slack for rare but legitimate normal traffic chosen in Task 2A: **`nu = c + 0.01·(1 − c)`** (0.0481 / 0.0834 / 0.1751 / 0.2930; for `c = 0` it gives back 0.01). The OC-SVM fills this budget exactly (second table, "fraction left outside" = `nu`).
+
+What `c` does **not** guarantee is *which* points are left out: the model excludes the points in the least dense regions, not the attacks. Only 43% (10%) to 62% (100%) of the excluded points are attacks; the rest are normal connections, so FPR rises with `nu` (2.9% → 15.5%), well above the 1% slack we planned.
+
+**[PDF §2] What did we do when the contamination rate was unknown?**
+
+On the 100% subset we did not use the true rate. We applied the standard anomaly-detection prior that attacks are rare (a few % of the traffic) and set **`nu = 0.05`**. It is a deliberate guess, not an estimate from the data. Here it underestimates the true rate (0.286) by a factor of ~6.
+
+**[PDF §2] How do the results change as more anomalies are included?**
+
+- **The big drop is between 0% and 10%.** Full-train macro-F1 falls from 0.937 to 0.764 with only 538 attacks (2.9% of the subset). We had expected only a small drop (logbook run 3, hypothesis rejected). DoS recall halves (0.910 → 0.501), and SYN-flood DoS, all detected by the normal-only model, fall to 0.545.
+- **Why:** attacks are not isolated points. DoS and probe are repeated, near-identical connections (Task 1.3): their median distance to the 5th nearest neighbour (dos 0.088, probe 0.057, r2l 0.064) is as small as or smaller than that of normal traffic (0.085). Once a few of them are in the training data, they form dense regions and the boundary grows to include them. This is not memorisation of the included points: attacks **never seen** in fitting are enclosed almost as much as the included ones (run 3 recall dos 0.497 vs 0.529, probe 0.519 vs 0.560).
+- **From 10% to 100%:** the subset macro-F1 changes little (0.724 → 0.746 → 0.740); full-train macro-F1 is flat (0.764–0.766) until 50% and drops to 0.740 at 100%. Recall rises with `nu` (dos 0.50 → 0.61, r2l 0.11 → 0.59), but false alarms grow faster (387 → 2,079 FP). The two effects roughly cancel. The rise in recall comes from the larger `nu`, not from the model "understanding" attacks better.
+- **R2L** rises from 0.017 to 0.586 as `nu` grows: R2L is only 181 rows, too few to form a dense region, so it ends up among the excluded low-density points.
+
+**[PDF §2] Does knowing the contamination rate help in the 100% case?**
+
+Yes, clearly: macro-F1 **0.740** (known, `nu = 0.293`) vs **0.506** (unknown, `nu = 0.05`). With `nu = 0.05` the boundary encloses 92% of the attacks (DoS recall 0.079). It produces few false alarms (384), but detects almost nothing. We had expected a small gap (logbook run 7, rejected in magnitude). The 100% model is still far below the normal-only model (0.937): knowing `c` only tells the model *how many* points to exclude, not *which ones*, while clean normal data tells it what normal looks like.
+
+**[PDF §2] Is comparing scores across training subsets fair?**
+
+Not fully, for three reasons:
+1. **Different priors.** Each subset has a different share of anomalies (3.8% → 28.6%). Precision and F1 depend on this prior, so the same detector would get different scores on different subsets. This is why the subset curve starts lower than the full-train curve at 10% (0.724 vs 0.764).
+2. **Different evaluation sets and `nu`.** Each model is scored on its own subset with its own `nu`. Training and evaluation data coincide, so the scores measure how well the boundary fits the training data, not detection on unseen traffic.
+3. **Full-train scores are only partly fairer.** They use the same 18,831 rows for every model, but the included attacks are training data for some models and unseen for others. The comparison on unseen data is Task 2C (test set).
+
+Notebook: Task 2B cells (subset table, runs 3–7, plot, diagnostic cell).
 
 ### Task 2C - Generalisation to the test set
 
