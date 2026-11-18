@@ -329,15 +329,67 @@ t-SNE of all 18,831 training points (`init='pca'`, seed 42) with perplexity **5,
 
 ### Task 4B - DBSCAN
 
-**[PDF §4.B] Choice of `min_points` and ε.** *Pending.*
+**Knowledge assumed.** DBSCAN is fitted on the full training file (normal + all attacks, no labels), on the same 106 preprocessed features (Euclidean distance). Neither the labels nor the contamination are used to choose `min_samples` and ε. Noise (cluster −1) is treated as anomaly; there is no threshold to set.
 
-**[PDF §4.B] Is the noise cluster only anomalies; number of clusters.** *Pending.*
+**[PDF §4.B] Choice of `min_points` and ε.**
 
-**[PDF §4.B] Similarities with LOF (examples).** *Pending.*
+- **`min_points` (`min_samples` in sklearn, the point itself included) = 100.** We consider "normal" a behaviour that is repeated in at least about 100 similar connections; whatever belongs to no such group is an anomaly. 100 is also the neighbourhood size of the LOF selected in Task 3 (`n_neighbors` = 100), so the two density-based methods work at the same scale and can be compared directly.
+- **ε from the k-distance plot** (logbook run 13). For every training point we compute the distance to its 100th nearest neighbour, sort the values and take the elbow with the kneedle rule (the point of the normalised curve farthest from the diagonal). We declared this criterion before seeing the curve. Result: **ε = 0.570**, at 67.6% of the sorted points, so at most 32.4% of the points can be noise.
+- **The curve has no sharp elbow.** It rises gradually from about the 60th percentile (median 100-distance 0.30, 90th percentile 1.42). Our hypothesis (a flat curve with a jump in the last few percent, leaving 5-15% above ε) was wrong.
+- **A plateau at √2 ≈ 1.414** contains 956 points (933 dos). In our encoding, connections that differ only in `service` are √2 apart (two one-hot columns change). These points are **SYN-flood connections spread over many services** (bgp, Z39_50, imap4…), with fewer than 100 connections per service, so their 100th neighbour always has a different service. The ε choice around √2 therefore decides their fate. With ε < √2 they cannot be core points and become noise. With a larger ε (the visual elbow of the upper tail, ε ≈ 1.45, would leave only 6.7% of the points above ε) they would merge across services into a dense cluster and be missed. We kept the declared criterion (ε = 0.570) and did not fit the alternative, to save runs.
+
+**[PDF §4.B] Is the noise cluster only anomalies; number of clusters.**
+
+DBSCAN (logbook run 14) finds **18 clusters**. 67.6% of the points are core points and **25.1% are noise** (4,728 points).
+
+| | normal | dos | probe | r2l |
+| --- | --- | --- | --- | --- |
+| Points in noise | 2,237 | 1,536 | 933 | 22 |
+| Share of the noise | 47.3% | 32.5% | 19.7% | 0.5% |
+| Share of the label in noise | 16.6% | 52.7% | 40.8% | 12.2% |
+
+- **No, the noise is not only anomalies.** Almost half of it is normal traffic: 2,237 connections, 16.6% of all normal traffic. They come from many services (http 373, other 298, domain_u 230, telnet 209, private 199, ftp_data 188, smtp 172) and are mostly flag SF (1,776), with some error flags (REJ 190, S1 86, S0 80, RSTO 44…). As a detector the noise gives **macro-F1 0.653**, FPR 0.166, precision 0.527, recall dos 0.527, probe 0.408, r2l 0.122.
+- **The clusters are much purer than with K-Means.** 14 of the 18 are pure, and each one corresponds to a single `service` + `flag` combination. Several clusters are **attacks**, and DBSCAN does not flag them because they are dense:
+  - SYN flood on `private` (602 dos);
+  - ICMP echo reply dos (509);
+  - ICMP ping sweep (686 probe, plus 111 probe with 40 normal);
+  - five port-scan clusters with flag REJ or RSTR, of 100-181 points each (four probe, one dos). About 100 identical repeated connections are enough to look "normal" to DBSCAN.
+- **What is detected.** All 956 points of the √2 plateau are noise: 1,055 SYN-flood connections on 54 different services are detected, while the 602 on `private` are missed. **r2l is mostly missed**: 105 of its 181 points are inside the normal ftp_data cluster and 54 inside the ftp cluster. The group is compact, and 181 points are enough to be dense with `min_samples` = 100. Our hypothesis (r2l partly noise) was wrong. We also expected tens of clusters, not 18.
+- Compared with K-Means (known-contamination threshold), DBSCAN reaches the same macro-F1 (0.653 vs 0.654) with fewer FP (FPR 0.166 vs 0.198), but it catches different attacks: more dos (0.53 vs 0.40), less probe (0.41 vs 0.61) and almost no r2l (0.12 vs 0.97).
+
+**[PDF §4.B] Similarities with LOF (examples).**
+
+LOF is recomputed with the Task 3 selection (`n_neighbors` = 100, known contamination). It is the same deterministic model as logbook run 8 (macro-F1 0.5774 again), so it is not a new run. Both methods use the density of the 100 nearest neighbours.
+
+| | Flagged | Macro-F1 | FPR | Recall dos | Recall probe | Recall r2l |
+| --- | --- | --- | --- | --- | --- | --- |
+| DBSCAN noise | 25.1% | 0.653 | 0.166 | 0.527 | 0.408 | 0.122 |
+| LOF, k = 100 | 28.6% | 0.577 | 0.242 | 0.534 | 0.240 | 0.166 |
+
+**Agreement.** 2,787 points are flagged by both, 1,941 only by DBSCAN, 2,596 only by LOF, and 11,507 by neither. The two methods agree on 75.9% of the points. 58.9% of the DBSCAN noise is also flagged by LOF, and 51.8% of the LOF flags are DBSCAN noise. The median LOF value is 1.41 for DBSCAN noise and 1.05 for clustered points. The two methods overlap, but they are far from identical.
+
+**Examples by group** (labels and raw features used only to define the groups):
+
+| Group | n | DBSCAN noise | LOF flag | Both | Median 100-distance | Median LOF value |
+| --- | --- | --- | --- | --- | --- | --- |
+| SYN flood on `private` | 607 | 0.8% | 24.2% | 0.8% | 0.11 | 1.04 |
+| SYN flood on other services | 1,050 | **100%** | **93.2%** | 93.2% | 1.42 | **3.62** |
+| ICMP echo reply dos | 529 | 3.8% | 28.4% | 3.8% | 0.37 | 1.06 |
+| ICMP ping sweep probe | 816 | 2.3% | 13.1% | 1.6% | 0.25 | 1.07 |
+| Port-scan probe (REJ/RSTR) | 1,005 | 44.6% | 28.3% | 22.5% | 0.72 | 1.03 |
+| r2l | 181 | 12.2% | 16.6% | 12.2% | 0.29 | 1.00 |
+| Normal, error flag | 785 | 58.6% | 66.0% | 42.8% | 0.96 | 1.38 |
+| Normal, flag SF | 12,662 | 14.0% | 21.6% | 6.6% | 0.21 | 1.05 |
+
+- **Same blind spot: dense attack groups.** The SYN flood on `private`, the ICMP echo reply dos and the ping sweep have a very small 100-distance (0.11-0.37) and a LOF value of about 1: each point is as dense as its neighbours. Both methods miss them; DBSCAN almost completely (≤ 4%), LOF mostly (13-28%).
+- **Same strength: the SYN flood spread over many services.** We expected only DBSCAN to flag it, but **LOF flags 93% of it too** (median LOF value 3.6, the highest of all groups), so our expectation was wrong. Those points are at √2 from their 100th neighbour, beyond ε, so DBSCAN marks them as noise. For LOF, their neighbours belong to much denser groups (e.g. the SYN flood on `private`, 100-distance 0.11), so these points are far less dense than their neighbours. The two criteria differ (absolute radius vs relative density), but here they agree.
+- **Same weak point on r2l.** r2l is compact (100-distance 0.29, LOF value 1.00) and both methods mostly miss it (12% and 17%). The 22 r2l points that DBSCAN marks as noise are also flagged by LOF.
+- **Same source of false positives: normal traffic with error flags.** Normal connections with S0, S1, S2, S3, REJ, RSTO or RSTR are flagged by both: 58.6% by DBSCAN and 66.0% by LOF, against 14.0% and 21.6% for normal SF traffic. They lie at the edge of the dense attack groups, as we found for LOF in Task 3.
+- **Where they differ.** LOF flags more scattered normal SF traffic, because it always flags 28.6% of the points. DBSCAN flags more port-scan probe (44.6% vs 28.3%): scans that do not reach 100 similar connections stay outside every cluster even though their relative density is not lower than their neighbours'. In short, DBSCAN needs a large enough absolute density, while LOF needs a lower density than the neighbours.
 
 ## Task 5 - Isolation Forest
 
-*The PDF text skips from Task 4 to Task 6; the run budget mentions Isolation Forest as Task 5. Check the official assignment for its questions.* *Pending.*
+**Not part of the assignment.** The PDF text goes from Task 4 to Task 6. Isolation Forest is still mentioned in the objectives and in the run budget ("a couple for Isolation Forest (Task 5)"), but the teaching staff confirmed that the task was removed on purpose. We do not implement it. The ~2 runs the guide reserved for it cover the extra clustering run (Task 4 uses 5 runs instead of ~4), so the total stays within the ~25 budget (about 22 planned).
 
 ## Task 6 - Deep anomaly detection with Autoencoders
 
