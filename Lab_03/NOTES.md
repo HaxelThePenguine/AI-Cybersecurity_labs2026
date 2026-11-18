@@ -2,7 +2,7 @@
 
 `[PDF §...]` marks assignment questions. Run numbers match the sequential logbook; notebook labels use configuration names. OC-SVM = One-Class SVM; LOF = Local Outlier Factor; AE = Autoencoder; FPR = false-positive rate (normal flagged as anomalous). "Anomaly" = binary_label 1 (any attack). Macro-F1 is binary (normal vs anomaly) unless stated otherwise.
 
-**Status:** Task 1 and Task 2A complete. Tasks 2B–7 pending.
+**Status:** Tasks 1, 2 (2A, 2B, 2C) and 3 complete. Tasks 4–7 pending.
 
 **Knowledge assumptions (global):** labels are used only to build training subsets and to evaluate, never as a supervised signal. Preprocessing is fitted on training data only. The test set is used only where a task explicitly asks for it; any validation set is carved out of train.csv.
 
@@ -148,13 +148,62 @@ Notebook: Task 2B cells (subset table, runs 3–7, plot, diagnostic cell).
 
 ### Task 2C - Generalisation to the test set
 
-| Model | Test macro-F1 | TN | FP | FN | TP | dos recall | probe recall |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Normal only | | | | | | | |
-| 10% anomalies | | | | | | | |
-| 100% anomalies | | | | | | | |
+**Setup.** No refit: the three known-contamination models of Task 2A/2B (run 1 normal only, `nu = 0.01`; run 3 10%, `nu = 0.0481`; run 6 100%, `nu = 0.2930`) are applied to `Lab3_test.csv` with the train-fitted preprocessing. Test: 2,152 normal, 2,577 dos, 1,097 probe, no r2l (63.1% attacks). Logbook row 2C. "Train" = full train.csv score of the same model (Task 2B).
 
-**[PDF §2] Train vs test; best model; error types; most-missed attacks and explanation from heatmaps.** *Pending.*
+**[PDF §2] Macro-F1, confusion matrix and per-attack recall on the test set.**
+
+| Model | Train macro-F1 | **Test macro-F1** | Train FPR | Test FPR | TN | FP | FN | TP | Precision (anomaly) | dos recall train → test | probe recall train → test |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Normal only (run 1) | 0.9367 | **0.7971** | 0.010 | 0.308 | 1,489 | 663 | 409 | 3,265 | 0.831 | 0.910 → 0.848 | 0.844 → 0.985 |
+| 10% anomalies (run 3) | 0.7638 | 0.7297 | 0.029 | 0.268 | 1,576 | 576 | 936 | 2,738 | 0.826 | 0.501 → 0.688 | 0.523 → 0.881 |
+| 100% anomalies (run 6) | 0.7402 | 0.7084 | 0.155 | 0.414 | 1,262 | 890 | 654 | 3,020 | 0.772 | 0.609 → 0.760 | 0.681 → 0.967 |
+
+Confusion matrices: notebook, Task 2C (three panels). Rows = true (normal, anomaly), columns = predicted.
+
+Recall by sub-group (train → test), to see which attacks are missed:
+
+| Group | n train / test | Normal only | 10% | 100% |
+| --- | --- | --- | --- | --- |
+| dos SYN (`serror_rate` > 0.5) | 1,675 / 548 | 1.000 → 0.996 | 0.545 → 0.761 | 0.643 → 0.852 |
+| dos non-SYN | 1,238 / 2,029 | 0.788 → 0.807 | 0.440 → 0.668 | 0.563 → 0.735 |
+| probe icmp | 827 / 142 | 0.917 → 0.972 | 0.403 → 0.824 | 0.605 → 0.923 |
+| probe tcp | 1,147 / 659 | 0.977 → 0.998 | 0.746 → 0.894 | 0.891 → 0.979 |
+| probe udp | 315 / 296 | 0.171 → 0.963 | 0.025 → 0.878 | 0.114 → 0.963 |
+
+**[PDF §2] How do training and test results differ?**
+
+- **Macro-F1 drops for every model**, most for the normal-only one (0.937 → 0.797). The drop does not come from missed attacks. It comes from **false alarms**: test FPR is 27–41%, against 1–15% on train.
+- **The cause is a shift in normal traffic.** 834 of the 2,152 normal test connections (38.8%) are UDP connections to service `private` with high-rate traffic statistics (median `count` 220, `dst_host_same_src_port_rate` 0.84). In training normal traffic this pattern is almost absent: 199 `private` connections (1.5%), median `count` 2, `dst_host_same_src_port_rate` 0.01. Overall, 41.4% of normal test connections have `count` > 100, against 7.5% in train. A detector that learnt "normal" from the training file has never seen this kind of normal traffic, so it flags it. 67% of these connections are flagged by the normal-only model, 57% by run 3 and 66% by run 6. The FP rate on the other normal connections is only 7.7% for runs 1 and 3 (25.8% for run 6, whose boundary is tighter).
+- In Task 1.3 these features describe DoS and probe (high `count`, `dst_host_same_src_port_rate` ≈ 1 for probe). In the test set, legitimate traffic shows the same values. A feature-based detector cannot tell them apart without seeing this traffic as normal during training.
+- **Attack recall is higher on test than on train** for every model, especially for probe (normal only 0.844 → 0.985; run 3 0.523 → 0.881). The test attacks are more extreme versions of the training ones. UDP probe, for example, has median `count` 105 vs 17 in train and `dst_host_diff_srv_rate` 0.76 vs 0.22: run 1 detects 96% of it on test, against only 17% on train. The contaminated models still benefit: the attacks they enclosed in training were the less extreme ones.
+- **The test prior changes the metric.** With 63% attacks, precision on the anomaly class stays high (0.77–0.83) even with a 30–40% FPR, because the attacks outnumber the normal connections. The training macro-F1 of the three models was computed at 28.6% contamination, so the two numbers are not directly comparable (same issue as in Task 2B).
+
+**[PDF §2] Which model performs best on unseen traffic?**
+
+**The normal-only model (run 1): macro-F1 0.797**, ahead of 10% (0.730) and 100% (0.708). It has the highest recall on both dos and probe and the fewest FN (409). The ranking of train.csv is preserved, but the gap shrinks from 0.17 to 0.07, because the normal-traffic shift affects all three models.
+
+Our hypothesis that run 6 would overtake run 3 on an attack-heavy test (logbook row 2C) was wrong. Run 6 does detect more attacks (FN 654 vs 936), but its larger `nu` also excludes more normal test traffic (FP 890 vs 576, FPR 41%). In this test set, the extra false alarms weigh more than the extra detections.
+
+**[PDF §2] Are errors mainly false alarms or missed attacks?**
+
+It depends on the model:
+- **Normal only:** mainly **false alarms** (FP 663 vs FN 409). 85% of its FP (561/663) are the shifted UDP `private` normal connections. Normal connections with rare error flags are also flagged: RSTR 82%, REJ 61%, S2 75%, the same pattern as for LOF in Task 3.
+- **10% anomalies:** mainly **missed attacks** (FN 936 vs FP 576). Its boundary encloses part of the dos/probe region it saw in training.
+- **100% anomalies:** mainly **false alarms** (FP 890 vs FN 654). The larger `nu` (0.293) moves the boundary inside the normal region.
+
+Before running we expected errors to be mainly missed attacks for all models. This was true only for run 3.
+
+**[PDF §2] Which attack types are most frequently missed, and why (link to the heatmaps)?**
+
+- **DoS is the most missed type for all three models** (recall 0.85 / 0.69 / 0.76; probe 0.99 / 0.88 / 0.97).
+- **Non-SYN DoS is missed most** (normal only: 0.807, vs 0.996 for SYN-flood). This is the bimodality of DoS seen in Task 1.3. SYN-flood connections (`serror_rate` = 1, zero bytes, very high `count`) are far from every normal pattern. The other DoS group is not.
+- **The missed DoS of the normal-only model are almost all one attack pattern:** 91% use `http` with flag SF, and 324 of the 393 have the same `src_bytes` = 54,540. Compared with detected DoS, they are logged in (`logged_in` mean 0.88 vs 0.01), have non-zero `dst_bytes` (0.51 vs 0.00), low `count` (0.18 vs 0.80) and `same_srv_rate` ≈ 1. On all these features they look like a normal web session. In the heatmaps, normal traffic is the class with `logged_in` = 1, non-zero bytes and `same_srv_rate` = 1. The only anomalous element is a request much larger than normal http (`src_bytes` 54,540 vs normal http median 243). After `log1p` + min-max it is a small shift in one feature out of 106, and the RBF boundary encloses it. This is a payload-based attack: the traffic features of Task 1.3 cannot reveal it.
+- **Probe is almost never missed on test** (16/1,097 for the normal-only model). The few misses are SF connections without REJ errors (`rerror_rate` 0 vs 0.49 for detected probe), mostly to service `other`. As noted in Task 1.3, probe is heterogeneous: the REJ-error part is easy to detect, while the part without errors is closer to normal traffic.
+- **R2L is absent from the test set**, so its generalisation cannot be measured. On train it was the most-missed class for the normal-only model (0.017), as the heatmaps predicted (Task 2A).
+
+**Summary.** Clean normal training data remains the most useful knowledge on unseen traffic: it beats both contaminated models. However, the "normal" it learns is only the normal traffic of the training file. When legitimate traffic changes (here, high-rate UDP `private`), a one-class model has no way to know that the new pattern is benign. Under this shift FPR rises from 1% to 31%.
+
+Notebook: Task 2C cells (results table, confusion matrices, sub-group recall and diagnostics).
 
 ## Task 3 - Local Outlier Factor
 
@@ -237,7 +286,7 @@ Test (logbook run 9, `novelty=True`, threshold from the training contamination):
 
 ## Logbook and submission
 
-The current logbook lists **2 retained runs** (budget ~25).
+The current logbook lists **9 retained runs** (budget ~25): Task 2 runs 1-7, Task 3 runs 8-9. Task 2C is a test evaluation of runs 1, 3, 6 and uses no budget.
 
 - [ ] Report `groupID_lab3.pdf`, maximum 10 pages, with decisions, measured results and reasoning.
 - [ ] Experiment logbook, separate or appendix (outside the page limit).
